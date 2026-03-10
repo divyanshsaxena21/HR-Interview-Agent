@@ -1,33 +1,79 @@
-# 🎯 VoxHire AI — Smart Voice Hiring Assistant
 
-Welcome to **VoxHire AI** — your friendly, AI-powered recruiting assistant that runs natural voice interviews, transcribes responses, and provides structured evaluations for hiring teams. 🌟
+# 🎤 VoxHire AI
+### Smart Voice-Powered Hiring Assistant
 
-Quick highlights:
+**VoxHire AI** is an AI-driven recruiter that conducts **voice interviews directly in the browser**, analyzes candidate responses, and generates structured hiring insights for recruiters.
 
-- 🎤 Voice-first interviews (candidate speaks naturally)
-- 🧠 AI-driven question generation & follow-ups
-- 📊 Live evaluation: communication, technical, confidence, problem-solving
-- ⚡️ Dev-friendly: runs locally without Redis (in-memory queue fallback)
+It simulates a **real screening interview** using AI — asking questions, listening to responses, and evaluating communication and technical ability.
 
 ---
 
-## 🚀 Quick start (dev)
+## ✨ Features
 
-Prerequisites:
+🎤 **Voice-First Interviews**  
+Candidates answer naturally using their microphone.
 
-- Go 1.18+
-- Node.js 18+
-- MongoDB (cloud or local)
+🧠 **AI Recruiter Agent**  
+Dynamic interview questions with intelligent follow-ups.
 
-Start backend:
+📝 **Automatic Transcription**  
+Speech-to-text powered by AssemblyAI.
+
+🔊 **AI Voice Questions**  
+Text-to-speech generated using Murf AI.
+
+📊 **Candidate Evaluation Dashboard**
+
+Live scoring across:
+
+- Communication
+- Technical Knowledge
+- Confidence
+- Problem Solving
+
+⚡ **Developer Friendly**
+
+- Runs locally
+- No Redis required (in-memory queue fallback)
+
+---
+
+## 🧱 Architecture
+
+```
+
+Browser (Next.js)
+│
+▼
+Go Backend (Gin)
+│
+▼
+LangChain Agent
+│
+▼
+Groq LLM
+│
+┌─────┴─────┐
+▼           ▼
+Murf TTS   AssemblyAI STT
+
+````
+
+---
+
+## 🚀 Quick Start
+
+### 1️⃣ Start Backend
 
 ```bash
 cd backend
-# copy config: cp .env.example .env  (edit .env)
+cp .env.example .env
 go run main.go
-```
+````
 
-Start frontend:
+---
+
+### 2️⃣ Start Frontend
 
 ```bash
 cd frontend
@@ -35,95 +81,110 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 in your browser. ✨
-
 ---
 
-## 🔐 Environment variables
+### 3️⃣ Open Application
 
-Create a `backend/.env` with these (examples):
-
-- `MONGO_URI` — MongoDB connection string
-- `JWT_SECRET` — JWT signing secret
-- `GROQ_API_KEY`, `GROQ_API_URL` — optional LLM provider
-- `MURF_API_KEY` — optional Murf TTS
-- `ASSEMBLYAI_API_KEY` — optional AssemblyAI STT
-- `REDIS_URL` — optional; leave empty to use the in-memory evaluation queue
-
-> Tip: For local development you can leave `REDIS_URL` empty — the app will automatically use an in-memory queue so you don't need Docker or an external Redis instance. 🧩
-
----
-
-## 🧭 Project layout
-
-- `backend/` — Go server, routes, controllers, services
-- `frontend/` — Next.js app (App Router), components, pages
-- `backend/services/eval_queue.go` — evaluation queue (Redis or in-memory)
-
----
-
-## 🛠 Useful commands
-
-- Build backend:
-
-```bash
-cd backend
-go build ./...
+```
+http://localhost:3000
 ```
 
-- Run backend:
+Start your AI-powered interview 🚀
 
-```bash
-go run main.go
+---
+
+## 🔐 Environment Variables
+
+Create `backend/.env`
+
+```env
+MONGO_URI=
+
+GROQ_API_KEY=
+GROQ_API_URL=
+
+MURF_API_KEY=
+ASSEMBLYAI_API_KEY=
+
+REDIS_URL=
 ```
 
-- Run frontend:
+Redis is **optional**.
+If not provided, VoxHire automatically uses an **in-memory evaluation queue**.
 
-```bash
-cd frontend
-npm install
-npm run dev
+---
+
+## 📂 Project Structure
+
+```
+backend/
+ ├─ controllers/
+ ├─ routes/
+ ├─ services/
+ ├─ models/
+ └─ main.go
+
+frontend/
+ ├─ app/
+ ├─ components/
+ ├─ lib/
+ └─ next.config.js
 ```
 
 ---
 
-## 🧪 Features & flow (short)
+## 🧪 Interview Flow
 
-1. Candidate enters session → AI asks first question
-2. Candidate answers by voice → browser records audio
-3. Audio → AssemblyAI (transcript) → backend
-4. Backend uses LangChain/GROQ (or fallback templates) to generate follow-ups
-5. AI question → Murf TTS → frontend plays audio
-6. After each turn, evaluation job enqueues (in-memory or Redis) and analytics update live
-
----
-
-## 📦 Evaluation scoring
-
-Live metrics include:
-
-- Communication: clarity & conciseness
-- Technical knowledge: domain keywords & depth
-- Confidence: hedging language vs assertiveness
-- Problem-solving: structure and solution approach
-
-All scores are stored in MongoDB and surfaced in the dashboard.
+1. Candidate starts interview
+2. AI asks question via voice
+3. Candidate answers using microphone
+4. Audio → transcript using AssemblyAI
+5. LangChain + Groq generates follow-up question
+6. Murf converts response to speech
+7. Evaluation and analytics update live
 
 ---
 
-## ✨ Visuals & branding
+## 📊 Candidate Evaluation
 
-You can style the frontend and README further to match your brand. Use emojis, badges, and screenshots to make it pop! If you'd like, I can add a simple SVG badge and a demo screenshot next.
+Each interview generates structured insights:
+
+| Metric              | Description               |
+| ------------------- | ------------------------- |
+| Communication       | Clarity & conciseness     |
+| Technical Knowledge | Domain understanding      |
+| Confidence          | Assertiveness in answers  |
+| Problem Solving     | Logical reasoning ability |
+
+All interview data and analytics are stored in **MongoDB**.
 
 ---
 
-## 🧾 Notes for contributors
+## 🌟 Tech Stack
 
-- Keep secrets out of git — `.gitignore` already excludes `.env` and `node_modules`.
-- For local testing, `REDIS_URL` may be empty (in-memory queue active).
+**Frontend**
+
+* Next.js
+* TypeScript
+* TailwindCSS
+
+**Backend**
+
+* Go
+* Gin
+* MongoDB
+
+**AI**
+
+* LangChain
+* Groq LLM
+* Murf AI (TTS)
+* AssemblyAI (STT)
 
 ---
 
-If you want this README to be even more colorful (badges, GIF demo, or a marketing-style header), tell me your preferred tone (playful, corporate, modern) and I'll update it. 🎨
+## 💡 Why VoxHire?
 
+VoxHire demonstrates how **AI agents can automate first-round hiring interviews**, enabling recruiters to evaluate candidates faster with structured insights and analytics.
 
+---

@@ -8,8 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -140,105 +138,59 @@ func (ic *InterviewController) Chat(c *gin.Context) {
 		return
 	}
 
-	// Improved repetition avoidance: normalize and compare against recent AI questions (last 10)
-	normalize := func(s string) string {
-		s = strings.ToLower(strings.TrimSpace(s))
-		re := regexp.MustCompile(`[[:punct:]]`)
-		s = re.ReplaceAllString(s, "")
-		s = strings.Join(strings.Fields(s), " ")
-		return s
-	}
-
-	recentAI := []string{}
-	for i := len(interview.Transcript) - 1; i >= 0 && len(recentAI) < 10; i-- {
-		if interview.Transcript[i].Role == "ai" {
-			recentAI = append(recentAI, interview.Transcript[i].Content)
-		}
-	}
-
-	checkSimilar := func(candidate string) bool {
-		nc := normalize(candidate)
-		for _, q := range recentAI {
-			nq2 := normalize(q)
-			if nc == nq2 || strings.Contains(nq2, nc) || strings.Contains(nc, nq2) {
-				return true
-			}
-		}
-		return false
-	}
-
-	// Try rerolling generated questions a few times to avoid repeats
-	maxRetries := 3
-	unique := false
-	if checkSimilar(question) {
-		for i := 0; i < maxRetries; i++ {
-			if newQ, err := agent.GenerateQuestion(interview.Transcript, interview.Role); err == nil {
-				if !checkSimilar(newQ) {
-					question = newQ
-					unique = true
-					break
-				}
-			}
-		}
-	} else {
-		unique = true
-	}
-
-	// Fallback pool
-	if !unique {
-		fallbackQuestions := []string{
-			"Can you describe a recent project you shipped and your role in it?",
-			"Tell me about a technical challenge you faced and how you resolved it.",
-			"How do you prioritize work when you have multiple deadlines?",
-			"Describe a time you improved performance or scalability in a system.",
-			"What tools and workflows do you use for debugging production issues?",
-			"How do you keep your technical skills up to date?",
-			"Tell me about a mistake you made and what you learned from it.",
-			"How do you approach system design for reliability?",
-			"Describe how you write tests for critical code paths.",
-			"What's a recent optimization you've implemented and why?",
-		}
-
-		for _, fq := range fallbackQuestions {
-			if !checkSimilar(fq) {
-				question = fq
-				unique = true
-				break
-			}
-		}
-	}
-
-	// If still not unique, finish the interview
-	if !unique {
-		evalService := services.NewEvaluationService()
-		evaluation, err := evalService.EvaluateInterview(interview)
+	// Check if interview should END
+	if question == "END_INTERVIEW" {
+		// Add thank you message to transcript
+		thankYouMsg := "Thank you so much for your time today! We really appreciate you taking the time to speak with us. We'll review your responses and get back to you with our decision within the next few days. Best of luck!"
+		
+		_, err := collection.UpdateOne(context.Background(), bson.M{"_id": interviewID}, bson.M{
+			"$push": bson.M{
+				"transcript": bson.M{
+					"role":      "ai",
+					"content":   thankYouMsg,
+					"timestamp": time.Now().Unix(),
+				},
+			},
+		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+
+		// Generate evaluation and analytics
+		evalService := services.NewEvaluationService()
+		evaluation, err := evalService.EvaluateInterview(interview)
+		if err != nil {
+			log.Printf("Evaluation error: %v", err)
+			evaluation = &models.Evaluation{
+				InterviewID: interviewID,
+				CreatedAt:   time.Now(),
+			}
 		}
 
 		evalCollection := ic.db.Collection("evaluations")
 		evalResult, err := evalCollection.InsertOne(context.Background(), evaluation)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			log.Printf("Eval insert error: %v", err)
 		}
 
 		analyticsService := services.NewAnalyticsService()
 		analytics, err := analyticsService.ComputeAnalytics(interview)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			log.Printf("Analytics error: %v", err)
+			analytics = &models.Analytics{
+				InterviewID: interviewID,
+				CreatedAt:   time.Now(),
+			}
 		}
 
 		analyticsCollection := ic.db.Collection("analytics")
 		analyticsResult, err := analyticsCollection.InsertOne(context.Background(), analytics)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			log.Printf("Analytics insert error: %v", err)
 		}
 
-		// Update interview to completed with references
+		// Update interview to completed
 		_, err = collection.UpdateOne(context.Background(), bson.M{"_id": interviewID}, bson.M{
 			"$set": bson.M{
 				"status":        "completed",
@@ -248,15 +200,24 @@ func (ic *InterviewController) Chat(c *gin.Context) {
 			},
 		})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			log.Printf("Interview update error: %v", err)
+		}
+
+		ttsService := services.NewMurfTTSService()
+		audioURL := ""
+		if audio, err := ttsService.TextToSpeech(thankYouMsg); err != nil {
+			log.Println("TTS error (end interview):", err)
+		} else {
+			audioURL = audio
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"finished":  true,
-			"reason":    "repeated_questions",
-			"evaluation": evaluation,
-			"analytics":  analytics,
+			"finished":    true,
+			"reason":      "interview_complete",
+			"message":     thankYouMsg,
+			"audio_url":   audioURL,
+			"evaluation":  evaluation,
+			"analytics":   analytics,
 		})
 		return
 	}
