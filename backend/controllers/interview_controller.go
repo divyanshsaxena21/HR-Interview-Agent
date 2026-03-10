@@ -92,6 +92,13 @@ func (ic *InterviewController) StartInterview(c *gin.Context) {
 		audioURL = audio
 	}
 
+	// persist the audio URL for the initial question so the frontend can load it on /interview/:id
+	if audioURL != "" {
+		_, _ = collection.UpdateOne(context.Background(), bson.M{"_id": result.InsertedID}, bson.M{
+			"$set": bson.M{"audio_url": audioURL, "updated_at": time.Now()},
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"interview_id": interviewID,
 		"question":     question,
@@ -244,6 +251,13 @@ func (ic *InterviewController) Chat(c *gin.Context) {
 		log.Println("TTS error (Chat):", err)
 	} else {
 		audioURL = audio
+	}
+
+	// persist the audio URL so the frontend can reload the page and still have the latest audio
+	if audioURL != "" {
+		_, _ = collection.UpdateOne(context.Background(), bson.M{"_id": interviewID}, bson.M{
+			"$set": bson.M{"audio_url": audioURL, "updated_at": time.Now()},
+		})
 	}
 
 	// Enqueue incremental evaluation job (non-blocking)
