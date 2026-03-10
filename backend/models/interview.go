@@ -17,6 +17,7 @@ type Interview struct {
 	CandidateID     primitive.ObjectID `bson:"candidate_id" json:"candidate_id"`
 	CandidateName   string             `bson:"candidate_name" json:"candidate_name"`
 	Role            string             `bson:"role" json:"role"`
+	AudioURL        string             `bson:"audio_url,omitempty" json:"audio_url,omitempty"`
 	Transcript      []Message          `bson:"transcript" json:"transcript"`
 	Status          string             `bson:"status" json:"status"`
 	CreatedAt       time.Time          `bson:"created_at" json:"created_at"`

@@ -80,121 +80,140 @@ type ScoreResult struct {
 }
 
 func (ie *IncrementalEvaluator) computeScores(transcript []models.Message) ScoreResult {
-	result := ScoreResult{
-		CommunicationScore:  5,
-		TechnicalScore:      5,
-		ConfidenceScore:     5,
-		ProblemSolvingScore: 5,
-		AvgAnswerLength:     0,
-		FollowupsNeeded:     0,
-		ClarityRating:       5,
-		CandidateTalkRatio:  0.5,
-	}
-
+	// Compute per-message scores and average them so empty answers count as zero
 	candidateMessages := []string{}
 	aiMessages := []string{}
-	totalWords := 0
-
 	for _, msg := range transcript {
 		if msg.Role == "candidate" {
 			candidateMessages = append(candidateMessages, msg.Content)
-			totalWords += len(strings.Fields(msg.Content))
 		} else if msg.Role == "ai" {
 			aiMessages = append(aiMessages, msg.Content)
 		}
 	}
 
+	// Default result
+	result := ScoreResult{
+		CommunicationScore:  0,
+		TechnicalScore:      0,
+		ConfidenceScore:     0,
+		ProblemSolvingScore: 0,
+		AvgAnswerLength:     0,
+		FollowupsNeeded:     len(aiMessages),
+		ClarityRating:       5,
+		CandidateTalkRatio:  0.0,
+	}
+
 	if len(candidateMessages) == 0 {
+		// no candidate answers — return zeros as requested
 		return result
 	}
 
-	// Average answer length
-	avgWords := totalWords / len(candidateMessages)
-	result.AvgAnswerLength = avgWords
-
-	// Communication score (based on answer length)
-	if avgWords >= 60 {
-		result.CommunicationScore = 9
-	} else if avgWords >= 40 {
-		result.CommunicationScore = 8
-	} else if avgWords >= 20 {
-		result.CommunicationScore = 6
-	} else if avgWords >= 10 {
-		result.CommunicationScore = 5
-	} else if avgWords > 0 {
-		result.CommunicationScore = 4
-	}
-
-	// Technical depth (keyword density)
+	// Per-message scoring
 	techKeywords := []string{"go", "python", "java", "javascript", "react", "nodejs", "docker", "aws", "sql", "mongo", "typescript", "rust", "database", "api", "microservice"}
-	techHits := 0
+	hedgeKeywords := []string{"maybe", "perhaps", "might", "not sure", "i think", "could be", "sort of"}
+	problemKeywords := []string{"challenge", "problem", "debug", "fix", "issue", "optimize", "improve", "solution", "overcome", "resolved"}
+
+	commSum := 0
+	techSum := 0
+	confSum := 0
+	probSum := 0
+	totalWords := 0
+
 	for _, msg := range candidateMessages {
-		lower := strings.ToLower(msg)
+		trimmed := strings.TrimSpace(msg)
+		words := len(strings.Fields(trimmed))
+		totalWords += words
+
+		if trimmed == "" {
+			// empty answer => zero for this question
+			commSum += 0
+			techSum += 0
+			confSum += 0
+			probSum += 0
+			continue
+		}
+
+		// Communication: simple scale by words
+		comm := 0
+		if words >= 60 {
+			comm = 9
+		} else if words >= 40 {
+			comm = 8
+		} else if words >= 20 {
+			comm = 6
+		} else if words >= 10 {
+			comm = 5
+		} else if words > 0 {
+			comm = 4
+		}
+		commSum += comm
+
+		// Technical: keyword hits in this message
+		techHits := 0
+		lower := strings.ToLower(trimmed)
 		for _, kw := range techKeywords {
 			if strings.Contains(lower, kw) {
 				techHits++
 			}
 		}
-	}
-	if totalWords > 0 {
-		density := float64(techHits) / float64(totalWords)
-		if density > 0.05 {
-			result.TechnicalScore = 9
-		} else if density > 0.03 {
-			result.TechnicalScore = 8
-		} else if density > 0.015 {
-			result.TechnicalScore = 7
-		} else if techHits > 0 {
-			result.TechnicalScore = 6
-		} else {
-			result.TechnicalScore = 4
+		techScore := 4
+		if techHits > 0 {
+			if techHits >= 3 {
+				techScore = 9
+			} else if techHits == 2 {
+				techScore = 7
+			} else {
+				techScore = 6
+			}
 		}
-	}
+		techSum += techScore
 
-	// Confidence (inverse of hedging words)
-	hedgeKeywords := []string{"maybe", "perhaps", "might", "not sure", "i think", "could be", "sort of"}
-	hedgeHits := 0
-	for _, msg := range candidateMessages {
-		lower := strings.ToLower(msg)
+		// Confidence: hedging reduces score
+		hedgeHits := 0
 		for _, hw := range hedgeKeywords {
 			if strings.Contains(lower, hw) {
 				hedgeHits++
 			}
 		}
-	}
-	if hedgeHits > 3 {
-		result.ConfidenceScore = 4
-	} else if hedgeHits > 0 {
-		result.ConfidenceScore = 5
-	} else if avgWords > 30 {
-		result.ConfidenceScore = 8
-	} else if avgWords > 15 {
-		result.ConfidenceScore = 7
-	}
+		confScore := 7
+		if hedgeHits > 3 {
+			confScore = 4
+		} else if hedgeHits > 0 {
+			confScore = 5
+		} else if words > 30 {
+			confScore = 8
+		}
+		confSum += confScore
 
-	// Problem solving (keywords around challenges/solutions)
-	problemKeywords := []string{"challenge", "problem", "debug", "fix", "issue", "optimize", "improve", "solution", "overcome", "resolved"}
-	probHits := 0
-	for _, msg := range candidateMessages {
-		lower := strings.ToLower(msg)
+		// Problem solving
+		probHits := 0
 		for _, pk := range problemKeywords {
 			if strings.Contains(lower, pk) {
 				probHits++
 			}
 		}
-	}
-	if probHits > 2 {
-		result.ProblemSolvingScore = 8
-	} else if probHits > 0 {
-		result.ProblemSolvingScore = 7
-	} else {
-		result.ProblemSolvingScore = 5
+		probScore := 5
+		if probHits > 2 {
+			probScore = 8
+		} else if probHits > 0 {
+			probScore = 7
+		}
+		probSum += probScore
 	}
 
-	// Clarity rating (question count as a proxy for engagement)
-	result.FollowupsNeeded = len(aiMessages)
+	n := len(candidateMessages)
+	// average the per-message scores
+	result.CommunicationScore = commSum / n
+	result.TechnicalScore = techSum / n
+	result.ConfidenceScore = confSum / n
+	result.ProblemSolvingScore = probSum / n
+	result.AvgAnswerLength = 0
+	if n > 0 {
+		result.AvgAnswerLength = totalWords / n
+	}
+
+	// Clarity rating heuristics
 	if len(aiMessages) >= 5 && len(candidateMessages) >= 5 {
-		// Multiple exchanges suggest engaged conversation
 		result.ClarityRating = 7
 	} else if len(aiMessages) >= 3 {
 		result.ClarityRating = 6
@@ -202,11 +221,12 @@ func (ie *IncrementalEvaluator) computeScores(transcript []models.Message) Score
 		result.ClarityRating = 5
 	}
 
-	// Candidate talk ratio
-	if len(aiMessages) > 0 {
-		totalMsgs := len(candidateMessages) + len(aiMessages)
+	totalMsgs := len(candidateMessages) + len(aiMessages)
+	if totalMsgs > 0 {
 		result.CandidateTalkRatio = float64(len(candidateMessages)) / float64(totalMsgs)
 	}
+
+	result.FollowupsNeeded = len(aiMessages)
 
 	return result
 }

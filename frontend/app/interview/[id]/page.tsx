@@ -78,8 +78,23 @@ export default function InterviewPage() {
         if (response.ok) {
           const data = await response.json()
           console.log('Initial interview load:', data)
-          setInterviewData({ ...(data.interview || {}), evaluation: data.evaluation, analytics: data.analytics })
-          setCurrentQuestion(data.currentQuestion || 'Tell me about yourself and your background.')
+            setInterviewData({ ...(data.interview || {}), evaluation: data.evaluation, analytics: data.analytics })
+            const q = data.currentQuestion || (data.interview && data.interview.current_question) || 'Could you start by introducing yourself and briefly summarizing your professional background relevant to this role?'
+            setCurrentQuestion(q)
+            const audio = (data.interview && (data.interview.audio_url || data.interview.audioUrl)) || ''
+            setCurrentAudioUrl(audio)
+
+            if (audio) {
+              // autoplay server TTS for the initial question
+              setAudioAutoPlay(true)
+            } else {
+              // If there's no server TTS audio, speak the question via SpeechSynthesis
+              try {
+                const utter = new SpeechSynthesisUtterance(q)
+                window.speechSynthesis.cancel()
+                window.speechSynthesis.speak(utter)
+              } catch (e) {}
+            }
         }
       } catch (error) {
         console.error('Error loading interview:', error)

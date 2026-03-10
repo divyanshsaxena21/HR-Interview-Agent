@@ -20,6 +20,17 @@ func NewEvaluationService() *EvaluationService {
 }
 
 func (es *EvaluationService) EvaluateInterview(interview models.Interview) (*models.Evaluation, error) {
+	// If there are no candidate messages, skip evaluation
+	candidateCount := 0
+	for _, m := range interview.Transcript {
+		if m.Role == "candidate" && strings.TrimSpace(m.Content) != "" {
+			candidateCount++
+		}
+	}
+	if candidateCount == 0 {
+		return nil, nil
+	}
+
 	// Prefer GROQ when API key+URL are configured; otherwise use local heuristic
 	groqAPIKey := os.Getenv("GROQ_API_KEY")
 	groqAPIURL := os.Getenv("GROQ_API_URL")

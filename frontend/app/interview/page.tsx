@@ -45,7 +45,7 @@ export default function InterviewPage() {
           setState((prev) => ({
             ...prev,
             transcript: data.interview.transcript || [],
-            currentQuestion: data.interview.current_question || 'Tell me about yourself.',
+            currentQuestion: data.interview.current_question || prev.currentQuestion || 'Tell me about yourself.',
             audioUrl: data.interview.audio_url || '',
           }))
         }
@@ -57,6 +57,20 @@ export default function InterviewPage() {
     loadInitialQuestion()
   }, [interviewId])
 
+  // Fallback: if no audio URL is available, use browser SpeechSynthesis to speak the question
+  useEffect(() => {
+    if (!state.audioUrl && state.currentQuestion) {
+      try {
+        const utter = new SpeechSynthesisUtterance(state.currentQuestion)
+        utter.rate = 1
+        utter.pitch = 1
+        window.speechSynthesis.cancel()
+        window.speechSynthesis.speak(utter)
+      } catch (e) {
+        // ignore if SpeechSynthesis not available
+      }
+    }
+  }, [state.currentQuestion, state.audioUrl])
   const handleTranscriptSubmit = async (transcript: string) => {
     try {
       const response = await fetch(

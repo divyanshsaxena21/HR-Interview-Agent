@@ -169,16 +169,22 @@ func (ic *InterviewController) Chat(c *gin.Context) {
 		evaluation, err := evalService.EvaluateInterview(interview)
 		if err != nil {
 			log.Printf("Evaluation error: %v", err)
+			// on error, create a minimal placeholder evaluation so downstream logic can continue
 			evaluation = &models.Evaluation{
 				InterviewID: interviewID,
 				CreatedAt:   time.Now(),
 			}
 		}
 
-		evalCollection := ic.db.Collection("evaluations")
-		evalResult, err := evalCollection.InsertOne(context.Background(), evaluation)
-		if err != nil {
-			log.Printf("Eval insert error: %v", err)
+		var evalResult *mongo.InsertOneResult
+		if evaluation != nil {
+			evalCollection := ic.db.Collection("evaluations")
+			er, err := evalCollection.InsertOne(context.Background(), evaluation)
+			if err != nil {
+				log.Printf("Eval insert error: %v", err)
+			} else {
+				evalResult = er
+			}
 		}
 
 		analyticsService := services.NewAnalyticsService()
@@ -191,21 +197,25 @@ func (ic *InterviewController) Chat(c *gin.Context) {
 			}
 		}
 
+		var analyticsResult *mongo.InsertOneResult
 		analyticsCollection := ic.db.Collection("analytics")
-		analyticsResult, err := analyticsCollection.InsertOne(context.Background(), analytics)
+		ar, err := analyticsCollection.InsertOne(context.Background(), analytics)
 		if err != nil {
 			log.Printf("Analytics insert error: %v", err)
+		} else {
+			analyticsResult = ar
 		}
 
-		// Update interview to completed
-		_, err = collection.UpdateOne(context.Background(), bson.M{"_id": interviewID}, bson.M{
-			"$set": bson.M{
-				"status":        "completed",
-				"evaluation_id": evalResult.InsertedID,
-				"analytics_id":  analyticsResult.InsertedID,
-				"updated_at":    time.Now(),
-			},
-		})
+		// Build update document conditionally including evaluation/analytics ids
+		updateDoc := bson.M{"status": "completed", "updated_at": time.Now()}
+		if evalResult != nil {
+			updateDoc["evaluation_id"] = evalResult.InsertedID
+		}
+		if analyticsResult != nil {
+			updateDoc["analytics_id"] = analyticsResult.InsertedID
+		}
+
+		_, err = collection.UpdateOne(context.Background(), bson.M{"_id": interviewID}, bson.M{"$set": updateDoc})
 		if err != nil {
 			log.Printf("Interview update error: %v", err)
 		}
@@ -352,11 +362,15 @@ func (ic *InterviewController) FinishInterview(c *gin.Context) {
 		return
 	}
 
-	evalCollection := ic.db.Collection("evaluations")
-	evalResult, err := evalCollection.InsertOne(context.Background(), evaluation)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	var evalResult *mongo.InsertOneResult
+	if evaluation != nil {
+		evalCollection := ic.db.Collection("evaluations")
+		er, err := evalCollection.InsertOne(context.Background(), evaluation)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		evalResult = er
 	}
 
 	analyticsService := services.NewAnalyticsService()
@@ -373,14 +387,14 @@ func (ic *InterviewController) FinishInterview(c *gin.Context) {
 		return
 	}
 
-	collection.UpdateOne(context.Background(), bson.M{"_id": interviewID}, bson.M{
-		"$set": bson.M{
-			"status":         "completed",
-			"evaluation_id":  evalResult.InsertedID,
-			"analytics_id":   analyticsResult.InsertedID,
-			"updated_at":     time.Now(),
-		},
-	})
+	updateDoc := bson.M{"status": "completed", "updated_at": time.Now()}
+	if evalResult != nil {
+		updateDoc["evaluation_id"] = evalResult.InsertedID
+	}
+	if analyticsResult != nil {
+		updateDoc["analytics_id"] = analyticsResult.InsertedID
+	}
+	collection.UpdateOne(context.Background(), bson.M{"_id": interviewID}, bson.M{"$set": updateDoc})
 
 	c.JSON(http.StatusOK, gin.H{
 		"interview_id": req.InterviewID,
