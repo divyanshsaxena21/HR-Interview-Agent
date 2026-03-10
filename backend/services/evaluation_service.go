@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"time"
+
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -22,7 +23,7 @@ func NewEvaluationService() *EvaluationService {
 func (es *EvaluationService) EvaluateInterview(interview models.Interview) (*models.Evaluation, error) {
 	// If there are no candidate messages, skip evaluation
 	candidateCount := 0
-	for _, m := range interview.Transcript {
+	for _, m := range interview.Messages {
 		if m.Role == "candidate" && strings.TrimSpace(m.Content) != "" {
 			candidateCount++
 		}
@@ -50,7 +51,7 @@ func (es *EvaluationService) EvaluateInterview(interview models.Interview) (*mod
 	groqAPIKey := os.Getenv("GROQ_API_KEY")
 	groqAPIURL := os.Getenv("GROQ_API_URL")
 
-	transcriptText := es.buildTranscriptText(interview.Transcript)
+	transcriptText := es.buildTranscriptText(interview.Messages)
 	evaluationPrompt := fmt.Sprintf(`
 Analyze this interview transcript and provide a detailed evaluation in JSON format:
 
@@ -87,7 +88,7 @@ func (es *EvaluationService) heuristicEvaluation(interview models.Interview) *mo
 	// Aggregate candidate messages
 	candidateMsgs := []string{}
 	totalWords := 0
-	for _, m := range interview.Transcript {
+	for _, m := range interview.Messages {
 		if m.Role == "candidate" {
 			candidateMsgs = append(candidateMsgs, strings.TrimSpace(m.Content))
 			totalWords += len(strings.Fields(m.Content))
@@ -213,7 +214,6 @@ func (es *EvaluationService) heuristicEvaluation(interview models.Interview) *mo
 	}
 
 }
-
 
 func maxInt(a, b int) int {
 	if a > b {

@@ -3,6 +3,7 @@ package services
 import (
 	"ai-recruiter/backend/models"
 	"time"
+
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -13,19 +14,19 @@ func NewAnalyticsService() *AnalyticsService {
 }
 
 func (as *AnalyticsService) ComputeAnalytics(interview models.Interview) (*models.Analytics, error) {
-	avgAnswerLength := as.computeAvgAnswerLength(interview.Transcript)
-	followupsNeeded := as.computeFollowups(interview.Transcript)
-	clarityRating := as.computeClarityRating(interview.Transcript)
-	candidateTalkRatio := as.computeCandidateTalkRatio(interview.Transcript)
+	avgAnswerLength := as.computeAvgAnswerLength(interview.Messages)
+	followupsNeeded := as.computeFollowups(interview.Messages)
+	clarityRating := as.computeClarityRating(interview.Messages)
+	candidateTalkRatio := as.computeCandidateTalkRatio(interview.Messages)
 
 	analytics := &models.Analytics{
-		ID:               primitive.NewObjectID(),
-		InterviewID:      interview.ID,
-		AvgAnswerLength:  avgAnswerLength,
-		FollowupsNeeded:  followupsNeeded,
-		ClarityRating:    clarityRating,
+		ID:                 primitive.NewObjectID(),
+		InterviewID:        interview.ID,
+		AvgAnswerLength:    avgAnswerLength,
+		FollowupsNeeded:    followupsNeeded,
+		ClarityRating:      clarityRating,
 		CandidateTalkRatio: candidateTalkRatio,
-		CreatedAt:        time.Now(),
+		CreatedAt:          time.Now(),
 	}
 
 	return analytics, nil

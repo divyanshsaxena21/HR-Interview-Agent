@@ -39,7 +39,7 @@ func (ie *IncrementalEvaluator) EvaluateAndUpdate(ctx context.Context, interview
 	}
 
 	// Compute incremental scores
-	scores := ie.computeScores(interview.Transcript)
+	scores := ie.computeScores(interview.Messages)
 
 	// Update or create analytics record
 	analyticsColl := ie.db.Collection("analytics")

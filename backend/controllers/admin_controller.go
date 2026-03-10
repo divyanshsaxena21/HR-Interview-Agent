@@ -45,13 +45,11 @@ func (ac *AdminController) Login(c *gin.Context) {
 		return
 	}
 
-	// Simple password comparison - in production, use proper password hashing
 	if admin.Password != req.Password {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
 
-	// Generate JWT token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"admin_id": admin.AdminID,
 		"exp":      time.Now().Add(24 * time.Hour).Unix(),
@@ -61,7 +59,7 @@ func (ac *AdminController) Login(c *gin.Context) {
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
-		jwtSecret = "your-secret-key" // Default secret for development
+		jwtSecret = "your-secret-key"
 	}
 
 	tokenString, err := token.SignedString([]byte(jwtSecret))
@@ -76,39 +74,23 @@ func (ac *AdminController) Login(c *gin.Context) {
 	})
 }
 
-// Middleware to verify admin token
-func (ac *AdminController) AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		tokenString := c.GetHeader("Authorization")
-		if tokenString == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
-			c.Abort()
-			return
-		}
+func (ac *AdminController) GetAllInterviews(c *gin.Context) {
+	collection := ac.db.Database("ai_recruiter").Collection("interviews")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-		// Remove "Bearer " prefix if present
-		if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
-			tokenString = tokenString[7:]
-		}
-
-		jwtSecret := os.Getenv("JWT_SECRET")
-		if jwtSecret == "" {
-			jwtSecret = "your-secret-key"
-		}
-
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(jwtSecret), nil
-		})
-
-		if err != nil || !token.Valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-			c.Abort()
-			return
-		}
-
-		c.Next()
+	cursor, err := collection.Find(ctx, bson.M{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
+	defer cursor.Close(ctx)
+
+	var interviews []models.Interview
+	if err := cursor.All(ctx, &interviews); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, interviews)
 }
