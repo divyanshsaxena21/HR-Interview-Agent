@@ -28,7 +28,22 @@ func (es *EvaluationService) EvaluateInterview(interview models.Interview) (*mod
 		}
 	}
 	if candidateCount == 0 {
-		return nil, nil
+		// No candidate responses — return a zeroed evaluation so the dashboard can show 0s
+		return &models.Evaluation{
+			ID:                  primitive.NewObjectID(),
+			InterviewID:         interview.ID,
+			CandidateName:       interview.CandidateName,
+			Role:                interview.Role,
+			CommunicationScore:  0,
+			TechnicalScore:      0,
+			ConfidenceScore:     0,
+			ProblemSolvingScore: 0,
+			Strengths:           []string{},
+			Weaknesses:          []string{},
+			Summary:             "No responses provided",
+			Fit:                 "NOT_FIT",
+			CreatedAt:           time.Now(),
+		}, nil
 	}
 
 	// Prefer GROQ when API key+URL are configured; otherwise use local heuristic

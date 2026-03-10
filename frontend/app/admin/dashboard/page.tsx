@@ -146,7 +146,7 @@ export default function AdminDashboardPage() {
                     </td>
                     <td className="px-6 py-4 text-gray-600">{interview.role}</td>
                     <td className="px-6 py-4 text-center">
-                      {interview.evaluation?.communication_score ? (
+                      {interview.evaluation && typeof interview.evaluation.communication_score === 'number' ? (
                         <span className="font-semibold text-blue-600">
                           {interview.evaluation.communication_score}/10
                         </span>
@@ -155,7 +155,7 @@ export default function AdminDashboardPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      {interview.evaluation?.technical_score ? (
+                      {interview.evaluation && typeof interview.evaluation.technical_score === 'number' ? (
                         <span className="font-semibold text-green-600">
                           {interview.evaluation.technical_score}/10
                         </span>
@@ -164,7 +164,7 @@ export default function AdminDashboardPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      {interview.evaluation?.confidence_score ? (
+                      {interview.evaluation && typeof interview.evaluation.confidence_score === 'number' ? (
                         <span className="font-semibold text-purple-600">
                           {interview.evaluation.confidence_score}/10
                         </span>
@@ -173,7 +173,7 @@ export default function AdminDashboardPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      {interview.evaluation?.fit ? (
+                      {interview.evaluation ? (
                         <FitBadge fit={interview.evaluation.fit} />
                       ) : (
                         <span className="text-gray-400">-</span>

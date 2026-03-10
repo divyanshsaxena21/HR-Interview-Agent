@@ -32,7 +32,11 @@ export default function TranscriptViewer({
               <p className="font-semibold text-sm mb-1">
                 {msg.role === 'candidate' ? 'You' : 'AI Recruiter'}
               </p>
-              <p className="text-sm">{msg.content}</p>
+              {msg.content && msg.content.trim() !== '' ? (
+                <p className="text-sm">{msg.content}</p>
+              ) : (
+                <p className="text-sm italic text-gray-500">— No answer —</p>
+              )}
             </div>
           ))
         )}
