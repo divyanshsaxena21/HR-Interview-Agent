@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import axios from 'axios'
 
 interface Message {
@@ -15,6 +16,7 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ interviewId, candidateName }: ChatInterfaceProps) {
+  const router = useRouter()
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -157,10 +159,23 @@ export default function ChatInterface({ interviewId, candidateName }: ChatInterf
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
       await axios.post(`${apiUrl}/interview/${interviewId}/end`)
+      
+      // Add thank you message to chat
+      setMessages(prev => [...prev, {
+        role: 'ai',
+        content: 'Thank you for your time! We appreciate your participation in this interview. Our team will review your responses and get back to you soon.',
+        timestamp: Date.now()
+      }])
+      
       setInterviewFinished(true)
       if (wsRef.current) {
         wsRef.current.close()
       }
+
+      // Redirect to completion page after 4 seconds so candidate can see the thank you message
+      setTimeout(() => {
+        router.push('/interview/complete')
+      }, 4000)
     } catch (err) {
       console.error('Failed to finish interview', err)
       alert('Failed to finish interview. Please try again.')

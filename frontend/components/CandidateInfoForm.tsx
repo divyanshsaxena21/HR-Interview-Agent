@@ -74,12 +74,14 @@ export default function CandidateInfoForm() {
         )
       }
 
-      setSuccessMessage(`${documents.length} document(s) uploaded successfully!`)
+      setSuccessMessage(`${documents.length} document(s) uploaded successfully! You can upload more documents or start the interview.`)
       setDocuments([])
       
-      setTimeout(() => {
-        router.push(`/interview/${interviewId}`)
-      }, 2000)
+      // Reset file input to allow uploading more documents
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+      if (fileInput) {
+        fileInput.value = ''
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to upload documents')
     } finally {
@@ -173,26 +175,35 @@ export default function CandidateInfoForm() {
           </form>
         ) : (
           <div className="space-y-4">
-            <div>
+            <p className="text-sm text-gray-600 font-medium mb-2">
+              Interview Details
+            </p>
+            <div className="bg-gray-50 p-3 rounded text-sm">
+              <p><strong>Candidate:</strong> {formData.name}</p>
+              <p><strong>Email:</strong> {formData.email}</p>
+              <p><strong>Position:</strong> {formData.role}</p>
+            </div>
+
+            <div className="border-t pt-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Upload Documents (Optional)
               </label>
-              <p className="text-xs text-gray-600 mb-2">
-                You can upload your resume, Aadhar, PAN, or other documents
+              <p className="text-xs text-gray-600 mb-3">
+                You can upload your resume, Aadhar, PAN, or other documents. You can upload multiple times.
               </p>
               <input
                 type="file"
                 multiple
                 onChange={handleFileChange}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
               />
             </div>
 
             {documents.length > 0 && (
-              <div>
+              <div className="bg-blue-50 p-3 rounded border border-blue-200">
                 <p className="text-sm font-medium text-gray-700 mb-2">
-                  Selected files ({documents.length}):
+                  Ready to upload ({documents.length}):
                 </p>
                 <ul className="text-sm text-gray-600">
                   {documents.map((doc, idx) => (
@@ -202,21 +213,29 @@ export default function CandidateInfoForm() {
               </div>
             )}
 
-            <button
-              onClick={handleUploadDocuments}
-              disabled={loading || documents.length === 0}
-              className="w-full py-2 px-4 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-400 font-medium transition"
-            >
-              {loading ? 'Uploading...' : documents.length > 0 ? `Upload ${documents.length} Document(s)` : 'Skip Documents'}
-            </button>
+            {documents.length > 0 && (
+              <button
+                onClick={handleUploadDocuments}
+                disabled={loading}
+                className="w-full py-2 px-4 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-400 font-medium transition"
+              >
+                {loading ? 'Uploading...' : `Upload ${documents.length} Document(s)`}
+              </button>
+            )}
 
             <button
               onClick={handleProceedToInterview}
               disabled={loading}
               className="w-full py-2 px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 font-medium transition"
             >
-              {documents.length > 0 ? 'Upload & Start Interview' : 'Start Interview Now'}
+              Start Interview Now
             </button>
+
+            {successMessage && (
+              <p className="text-xs text-green-600 text-center">
+                {successMessage}
+              </p>
+            )}
           </div>
         )}
 
