@@ -65,6 +65,15 @@ test_results/
 # Misc
 .envrc
 .history
+# Project-specific result / notes files
+TESTING_RESULTS.md
+REFACTORING_NOTES.md
+INTERVIEW_RESULTS_DASHBOARD.md
+SETUP_GUIDE.md
+
+# Test folders
+backend/tests/
+tests/
 # Node/Next.js
 node_modules/
 .next/
