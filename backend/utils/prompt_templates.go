@@ -4,38 +4,32 @@ import (
 	"fmt"
 )
 
-// Structured HR interview questions (8-10 questions total)
+// Structured HR interview questions (8 HR-focused questions)
 func GetHRInterviewQuestions(role string) []string {
 	return []string{
-		// Q1: Introduction & Background
-		"Could you start by introducing yourself and briefly summarizing your professional background relevant to this role?",
+		// Q1: Background
+		"Tell me about your background and professional experience.",
 
-		// Q2: Current/Recent Role
-		"Can you tell me about your current or most recent role, your key responsibilities, and what you enjoy most about it?",
+		// Q2: Tech/Skills for role
+		fmt.Sprintf("What's your experience with the key technologies and skills required for this %s role?", role),
 
-		// Q3: Relevant Experience
-		fmt.Sprintf("What is your experience with the technologies and skills required for this %s position, and can you give an example of how you've applied them?", role),
+		// Q3: Key Achievement
+		"What's a project or accomplishment you're proud of, and what was your role?",
 
-		// Q4: Project & Achievement
-		"Tell me about a specific project you're proud of — what was the goal, your role, and what was the outcome or impact?",
+		// Q4: Problem-Solving & Learning
+		"Describe a challenging situation you faced at work, how you handled it, and what you learned.",
 
-		// Q5: Problem-Solving
-		"Can you describe a challenging situation you faced at work, how you approached solving it, and what you learned from the experience?",
+		// Q5: Teamwork & Collaboration
+		"Tell me about a time you worked in a team. What was your role and how did you contribute?",
 
-		// Q6: Team Collaboration
-		"How do you typically work in a team environment? Can you give an example of a time you had to collaborate closely with colleagues?",
+		// Q6: Motivation & Alignment
+		fmt.Sprintf("Why are you interested in this %s position, and how does it align with your career goals?", role),
 
-		// Q7: Career Motivation
-		fmt.Sprintf("What attracted you to this %s role, and how does it align with your career goals?", role),
+		// Q7: Availability & Constraints
+		"Are you available to start soon? Please mention your notice period or any other constraints.",
 
-		// Q8: Current Offers & Relocation
-		"Do you have any competing offers at the moment, and are you able to relocate to our job location if required?",
-
-		// Q9: Salary & Expectations (optional, can be used as 9th or 10th)
-		"What are your salary expectations for this role, and are there any other benefits or work arrangements that are important to you?",
-
-		// Q10: Questions & Closure
-		"Do you have any questions for me about the role, the team, or the company?",
+		// Q8: Culture & Development
+		"What kind of work environment do you thrive in, and what are your expectations from a company in terms of growth and development?",
 	}
 }
 

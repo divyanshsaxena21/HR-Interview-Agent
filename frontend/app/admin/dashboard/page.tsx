@@ -17,12 +17,29 @@ interface Interview {
   github?: string
   linkedin?: string
   portfolio?: string
-  messages?: any[]
+  documents?: Array<{
+    file_name: string
+    content_type: string
+    data: string
+    uploaded_at: number
+  }>
+  message_count: number
   status?: string
   rejected?: boolean
   rejection_reason?: string
   created_at?: string
-  evaluation?: any
+  evaluation_id?: string
+  evaluation?: {
+    id?: string
+    communication_score?: number
+    technical_score?: number
+    confidence_score?: number
+    problem_solving_score?: number
+    fit?: string
+    summary?: string
+    strengths?: string[]
+    weaknesses?: string[]
+  }
 }
 
 interface HRQuestion {
@@ -42,6 +59,7 @@ export default function AdminDashboardPage() {
   const [interviews, setInterviews] = useState<Interview[]>([])
   const [questions, setQuestions] = useState<HRQuestion[]>([])
   const [loading, setLoading] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showNewQuestionForm, setShowNewQuestionForm] = useState(false)
   const [newQuestion, setNewQuestion] = useState<HRQuestion>({
     category: '',
@@ -169,41 +187,253 @@ export default function AdminDashboardPage() {
                 ) : interviews.length === 0 ? (
                   <p className="text-gray-600">No interviews yet</p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full bg-white rounded-lg shadow">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Candidate</th>
-                          <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Role</th>
-                          <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Status</th>
-                          <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Rejected</th>
-                          <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Links</th>
+                  <div className="bg-white rounded-lg shadow overflow-hidden">
+                    <table className="w-full">
+                      {/* Table Header */}
+                      <thead>
+                        <tr className="bg-gray-200 border-b-2 border-gray-300">
+                          <th className="px-6 py-3 text-left text-xs font-bold text-gray-700 w-1"></th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-700">Candidate</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-700">Role</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-700">Status</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Messages</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Communication</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Technical</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Confidence</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Problem Solving</th>
+                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Fit</th>
                         </tr>
                       </thead>
+
+                      {/* Table Body */}
                       <tbody>
                         {interviews.map((interview) => (
-                          <tr key={interview.id} className="border-b hover:bg-gray-50">
-                            <td className="px-6 py-3">
-                              <div>
-                                <p className="font-medium">{interview.candidate_name}</p>
-                                <p className="text-sm text-gray-600">{interview.email}</p>
-                              </div>
-                            </td>
-                            <td className="px-6 py-3">{interview.role}</td>
-                            <td className="px-6 py-3">
-                              <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">{interview.status}</span>
-                            </td>
-                            <td className="px-6 py-3">{interview.rejected ? <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-sm">Rejected</span> : <span className="text-gray-600">No</span>}</td>
-                            <td className="px-6 py-3 text-sm">
-                              {interview.github && (
-                                <a href={interview.github} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline mr-3">GitHub</a>
+                          <React.Fragment key={interview.id}>
+                            <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedId(expandedId === interview.id ? null : interview.id)}>
+                              <td className="px-6 py-3 w-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setExpandedId(expandedId === interview.id ? null : interview.id)
+                                  }}
+                                  className="text-xl text-gray-600 hover:text-gray-800"
+                                >
+                                  {expandedId === interview.id ? '▼' : '▶'}
+                                </button>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div>
+                                  <p className="font-medium text-sm">{interview.candidate_name}</p>
+                                  <p className="text-xs text-gray-500">{interview.email}</p>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-sm">{interview.role}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
+                                    interview.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                  }`}>
+                                    {interview.status}
+                                  </span>
+                                  {interview.rejected && (
+                                    <span className="px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800 whitespace-nowrap">Rejected</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-center text-sm font-medium text-gray-800">{interview.message_count || 0}</td>
+                              <td className="px-4 py-3 text-center">
+                                {interview.evaluation?.communication_score != null ? (
+                                  <span className="px-2 py-1 bg-blue-100 text-blue-900 rounded-full text-xs font-bold">{interview.evaluation.communication_score}/10</span>
+                                ) : (
+                                  <span className="text-gray-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {interview.evaluation?.technical_score != null ? (
+                                  <span className="px-2 py-1 bg-purple-100 text-purple-900 rounded-full text-xs font-bold">{interview.evaluation.technical_score}/10</span>
+                                ) : (
+                                  <span className="text-gray-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {interview.evaluation?.confidence_score != null ? (
+                                  <span className="px-2 py-1 bg-indigo-100 text-indigo-900 rounded-full text-xs font-bold">{interview.evaluation.confidence_score}/10</span>
+                                ) : (
+                                  <span className="text-gray-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {interview.evaluation?.problem_solving_score != null ? (
+                                  <span className="px-2 py-1 bg-green-100 text-green-900 rounded-full text-xs font-bold">{interview.evaluation.problem_solving_score}/10</span>
+                                ) : (
+                                  <span className="text-gray-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {interview.evaluation?.fit && (
+                                  <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
+                                    interview.evaluation.fit === 'strong_yes' ? 'bg-green-100 text-green-800' :
+                                      interview.evaluation.fit === 'yes' ? 'bg-blue-100 text-blue-800' :
+                                      interview.evaluation.fit === 'maybe' ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-red-100 text-red-800'
+                                    }`}>
+                                      {interview.evaluation.fit.replace('_', ' ')}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+
+                              {/* Expanded Details Row */}
+                              {expandedId === interview.id && (
+                                <tr className="border-t">
+                                  <td colSpan={10} className="px-6 py-4 bg-gray-50">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                      {/* Candidate Details */}
+                                      <div>
+                                        <h4 className="font-bold text-gray-800 mb-3">📋 Candidate Details</h4>
+                                        <div className="space-y-2 text-sm">
+                                          <div>
+                                            <p className="text-gray-600">Name:</p>
+                                            <p className="font-medium">{interview.candidate_name}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-gray-600">Email:</p>
+                                            <p className="font-medium">{interview.email}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-gray-600">Role Applied:</p>
+                                            <p className="font-medium">{interview.role}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-gray-600">Created:</p>
+                                            <p className="font-medium">{new Date(interview.created_at || '').toLocaleDateString()}</p>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Links & Documents */}
+                                      <div>
+                                        <h4 className="font-bold text-gray-800 mb-3">🔗 Links & Documents</h4>
+                                        <div className="space-y-3">
+                                          {interview.github && (
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-sm text-gray-600 font-medium">GitHub:</span>
+                                              <a
+                                                href={interview.github}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-600 hover:underline text-sm break-all"
+                                              >
+                                                {interview.github}
+                                              </a>
+                                            </div>
+                                          )}
+                                          {interview.linkedin && (
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-sm text-gray-600 font-medium">LinkedIn:</span>
+                                              <a
+                                                href={interview.linkedin}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-600 hover:underline text-sm break-all"
+                                              >
+                                                {interview.linkedin}
+                                              </a>
+                                            </div>
+                                          )}
+                                          {interview.portfolio && (
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-sm text-gray-600 font-medium">Portfolio:</span>
+                                              <a
+                                                href={interview.portfolio}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-600 hover:underline text-sm break-all"
+                                              >
+                                                {interview.portfolio}
+                                              </a>
+                                            </div>
+                                          )}
+                                          {!interview.github && !interview.linkedin && !interview.portfolio && (
+                                            <p className="text-gray-500 text-sm">No links provided</p>
+                                          )}
+                                        </div>
+
+                                        {/* Uploaded Documents */}
+                                        {interview.documents && interview.documents.length > 0 && (
+                                          <div className="mt-4 pt-4 border-t">
+                                            <h5 className="font-semibold text-gray-800 mb-3 text-sm">📄 Uploaded Documents</h5>
+                                            <div className="space-y-2">
+                                              {interview.documents.map((doc, idx) => (
+                                                <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-gray-200">
+                                                  <div className="flex-1">
+                                                    <p className="text-sm font-medium text-gray-800">{doc.file_name}</p>
+                                                    <p className="text-xs text-gray-500">
+                                                      {new Date(doc.uploaded_at * 1000).toLocaleDateString()} · {doc.content_type}
+                                                    </p>
+                                                  </div>
+                                                  <button
+                                                    onClick={() => {
+                                                      const link = document.createElement('a')
+                                                      const blob = new Blob([Buffer.from(doc.data, 'base64')], { type: doc.content_type })
+                                                      link.href = URL.createObjectURL(blob)
+                                                      link.download = doc.file_name
+                                                      link.click()
+                                                    }}
+                                                    className="ml-2 px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                                                  >
+                                                    Download
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Rejection Info */}
+                                      {interview.rejected && (
+                                        <div className="md:col-span-2 bg-red-50 border border-red-200 rounded-lg p-4">
+                                          <h4 className="font-bold text-red-800 mb-2">❌ Rejection Reason</h4>
+                                          <p className="text-red-700 text-sm">{interview.rejection_reason || 'Dealbreaker question failed'}</p>
+                                        </div>
+                                      )}
+
+                                      {/* Evaluation Summary */}
+                                      {interview.evaluation && (
+                                        <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                          <h4 className="font-bold text-blue-800 mb-2">📊 Evaluation Summary</h4>
+                                          {interview.evaluation.summary && (
+                                            <p className="text-blue-700 text-sm mb-3">{interview.evaluation.summary}</p>
+                                          )}
+                                          {interview.evaluation.strengths && interview.evaluation.strengths.length > 0 && (
+                                            <div className="mb-2">
+                                              <p className="text-xs font-medium text-blue-800">Strengths:</p>
+                                              <ul className="text-xs text-blue-700 list-disc list-inside">
+                                                {interview.evaluation.strengths.map((s, i) => (
+                                                  <li key={i}>{s}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          )}
+                                          {interview.evaluation.weaknesses && interview.evaluation.weaknesses.length > 0 && (
+                                            <div>
+                                              <p className="text-xs font-medium text-blue-800">Weaknesses:</p>
+                                              <ul className="text-xs text-blue-700 list-disc list-inside">
+                                                {interview.evaluation.weaknesses.map((w, i) => (
+                                                  <li key={i}>{w}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
                               )}
-                              {interview.linkedin && (
-                                <a href={interview.linkedin} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">LinkedIn</a>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                            </React.Fragment>
+                          ))}
                       </tbody>
                     </table>
                   </div>

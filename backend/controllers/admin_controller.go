@@ -11,11 +11,30 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type AdminController struct {
 	db *mongo.Client
+}
+
+type InterviewWithEvaluation struct {
+	ID              string            `json:"id"`
+	CandidateName   string            `json:"candidate_name"`
+	Email           string            `json:"email"`
+	Role            string            `json:"role"`
+	GitHub          string            `json:"github,omitempty"`
+	LinkedIn        string            `json:"linkedin,omitempty"`
+	Portfolio       string            `json:"portfolio,omitempty"`
+	Documents       []models.Document `json:"documents,omitempty"`
+	Status          string            `json:"status"`
+	Rejected        bool              `json:"rejected"`
+	RejectionReason string            `json:"rejection_reason,omitempty"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+	Evaluation      *models.Evaluation `json:"evaluation,omitempty"`
+	MessageCount    int               `json:"message_count"`
 }
 
 func NewAdminController(db *mongo.Client) *AdminController {
@@ -76,7 +95,8 @@ func (ac *AdminController) Login(c *gin.Context) {
 
 func (ac *AdminController) GetAllInterviews(c *gin.Context) {
 	collection := ac.db.Database("ai_recruiter").Collection("interviews")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	evaluationCollection := ac.db.Database("ai_recruiter").Collection("evaluations")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	cursor, err := collection.Find(ctx, bson.M{})
@@ -92,5 +112,37 @@ func (ac *AdminController) GetAllInterviews(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, interviews)
+	// Fetch evaluations and build response
+	var result []InterviewWithEvaluation
+	for _, interview := range interviews {
+		resp := InterviewWithEvaluation{
+			ID:              interview.ID.Hex(),
+			CandidateName:   interview.CandidateName,
+			Email:           interview.Email,
+			Role:            interview.Role,
+			GitHub:          interview.GitHub,
+			LinkedIn:        interview.LinkedIn,
+			Portfolio:       interview.Portfolio,
+			Documents:       interview.Documents,
+			Status:          interview.Status,
+			Rejected:        interview.Rejected,
+			RejectionReason: interview.RejectionReason,
+			CreatedAt:       interview.CreatedAt,
+			UpdatedAt:       interview.UpdatedAt,
+			MessageCount:    len(interview.Messages),
+		}
+
+		// Fetch evaluation if EvaluationID exists
+		if interview.EvaluationID != primitive.NilObjectID {
+			var evaluation models.Evaluation
+			err := evaluationCollection.FindOne(ctx, bson.M{"_id": interview.EvaluationID}).Decode(&evaluation)
+			if err == nil {
+				resp.Evaluation = &evaluation
+			}
+		}
+
+		result = append(result, resp)
+	}
+
+	c.JSON(http.StatusOK, result)
 }

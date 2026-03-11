@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	socketio "github.com/googollee/go-socket.io"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -62,32 +61,8 @@ func main() {
 
 	router.Use(corsMiddleware())
 
-	// Setup a basic Socket.IO server and mount it so frontend /socket.io requests succeed
-	sioServer := socketio.NewServer(nil)
-
-	sioServer.OnConnect("/", func(s socketio.Conn) error {
-		s.SetContext("")
-		log.Printf("socket connected: %s", s.ID())
-		return nil
-	})
-
-	sioServer.OnEvent("/", "candidate_message", func(s socketio.Conn, msg string) {
-		log.Printf("received candidate_message from %s: %s", s.ID(), msg)
-		// optional: integrate with websocket_service here
-	})
-
-	sioServer.OnDisconnect("/", func(s socketio.Conn, reason string) {
-		log.Printf("socket disconnected: %s (%s)", s.ID(), reason)
-	})
-
-	go func() {
-		if err := sioServer.Serve(); err != nil {
-			log.Printf("socketio serve error: %v", err)
-		}
-	}()
-
-	// Mount socket.io endpoints on Gin (single wildcard mount to avoid route conflicts)
-	router.Any("/socket.io/*any", gin.WrapH(sioServer))
+	// Setup WebSocket routes
+	routes.SetupWebSocketRoutes(router, mongoClient)
 
 	routes.SetupInterviewRoutes(router, mongoClient)
 	routes.SetupAdminRoutes(router, mongoClient)

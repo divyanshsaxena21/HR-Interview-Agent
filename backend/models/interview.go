@@ -19,23 +19,31 @@ type Message struct {
 	Timestamp int64  `bson:"timestamp" json:"timestamp"`
 }
 
+type Document struct {
+	FileName    string `bson:"file_name" json:"file_name"`
+	ContentType string `bson:"content_type" json:"content_type"`
+	Data        string `bson:"data" json:"data"`        // base64 encoded
+	UploadedAt  int64  `bson:"uploaded_at" json:"uploaded_at"`
+}
+
 type Interview struct {
-	ID              primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
-	CandidateID     primitive.ObjectID `bson:"candidate_id,omitempty" json:"candidate_id,omitempty"`
-	CandidateName   string             `bson:"candidate_name" json:"candidate_name"`
-	Email           string             `bson:"email" json:"email"`
-	Role            string             `bson:"role" json:"role"`
-	GitHub          string             `bson:"github,omitempty" json:"github,omitempty"`
-	LinkedIn        string             `bson:"linkedin,omitempty" json:"linkedin,omitempty"`
-	Portfolio       string             `bson:"portfolio,omitempty" json:"portfolio,omitempty"`
-	Messages        []Message          `bson:"messages" json:"messages"`
-	Documents       []string           `bson:"documents,omitempty" json:"documents,omitempty"`
-	Status          string             `bson:"status" json:"status"`
-	Rejected        bool               `bson:"rejected" json:"rejected"`
-	RejectionReason string             `bson:"rejection_reason,omitempty" json:"rejection_reason,omitempty"`
-	CreatedAt       time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt       time.Time          `bson:"updated_at" json:"updated_at"`
-	EvaluationID    primitive.ObjectID `bson:"evaluation_id,omitempty" json:"evaluation_id,omitempty"`
+	ID                    primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	CandidateID           primitive.ObjectID `bson:"candidate_id,omitempty" json:"candidate_id,omitempty"`
+	CandidateName         string             `bson:"candidate_name" json:"candidate_name"`
+	Email                 string             `bson:"email" json:"email"`
+	Role                  string             `bson:"role" json:"role"`
+	GitHub                string             `bson:"github,omitempty" json:"github,omitempty"`
+	LinkedIn              string             `bson:"linkedin,omitempty" json:"linkedin,omitempty"`
+	Portfolio             string             `bson:"portfolio,omitempty" json:"portfolio,omitempty"`
+	Messages              []Message          `bson:"messages" json:"messages"`
+	Documents             []Document         `bson:"documents,omitempty" json:"documents,omitempty"`
+	Status                string             `bson:"status" json:"status"`
+	Rejected              bool               `bson:"rejected" json:"rejected"`
+	RejectionReason       string             `bson:"rejection_reason,omitempty" json:"rejection_reason,omitempty"`
+	HRQuestionsAsked      int                `bson:"hr_questions_asked,omitempty" json:"hr_questions_asked,omitempty"`
+	CreatedAt             time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt             time.Time          `bson:"updated_at" json:"updated_at"`
+	EvaluationID          primitive.ObjectID `bson:"evaluation_id,omitempty" json:"evaluation_id,omitempty"`
 }
 
 type Evaluation struct {

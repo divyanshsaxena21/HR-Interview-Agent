@@ -4,16 +4,21 @@ import (
 	"ai-recruiter/backend/models"
 	"ai-recruiter/backend/utils"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type LangChainAgent struct {
-	memory []models.Message
+	memory              []models.Message
+	hrMemoryCollection  *mongo.Collection
 }
 
 type GroqRequest struct {
@@ -37,7 +42,15 @@ type GroqResponse struct {
 
 func NewLangChainAgent() *LangChainAgent {
 	return &LangChainAgent{
-		memory: []models.Message{},
+		memory:             []models.Message{},
+		hrMemoryCollection: nil,
+	}
+}
+
+func NewLangChainAgentWithMemory(hrMemoryCollection *mongo.Collection) *LangChainAgent {
+	return &LangChainAgent{
+		memory:             []models.Message{},
+		hrMemoryCollection: hrMemoryCollection,
 	}
 }
 
@@ -46,7 +59,7 @@ func (la *LangChainAgent) GenerateInitialQuestion(role string) (string, error) {
 	if len(questions) > 0 {
 		return questions[0], nil
 	}
-	return "Tell me about yourself and your background.", nil
+	return "Tell me about your background and professional experience.", nil
 }
 
 func (la *LangChainAgent) GenerateResponse(systemPrompt, userMessage, role string) (string, error) {
@@ -67,7 +80,7 @@ func (la *LangChainAgent) GenerateResponse(systemPrompt, userMessage, role strin
 	}
 
 	payload := GroqRequest{
-		Model:     "mixtral-8x7b-32768",
+		Model:     "llama-3.3-70b-versatile",
 		Messages:  messages,
 		MaxTokens: 500,
 	}
@@ -121,7 +134,31 @@ func (la *LangChainAgent) GenerateQuestion(transcript []models.Message, role str
 		}
 	}
 
-	questions := utils.GetHRInterviewQuestions(role)
+	// Try to fetch questions from HRMemory first
+	var questions []string
+	if la.hrMemoryCollection != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Fetch active questions from HRMemory for this role
+		filter := bson.M{"active": true, "category": role}
+		cursor, err := la.hrMemoryCollection.Find(ctx, filter)
+		if err == nil {
+			defer cursor.Close(ctx)
+			var hrQuestions []models.HRMemory
+			if err := cursor.All(ctx, &hrQuestions); err == nil && len(hrQuestions) > 0 {
+				// Convert HRMemory questions to strings
+				for _, q := range hrQuestions {
+					questions = append(questions, q.Question)
+				}
+			}
+		}
+	}
+
+	// If no HR Memory questions found, use static questions
+	if len(questions) == 0 {
+		questions = utils.GetHRInterviewQuestions(role)
+	}
 
 	if questionsAsked >= len(questions) {
 		return "END_INTERVIEW", nil
@@ -132,6 +169,42 @@ func (la *LangChainAgent) GenerateQuestion(transcript []models.Message, role str
 	}
 
 	return "Do you have any final questions for us?", nil
+}
+
+// GenerateQuestionWithTracking returns the next unanswered mandatory HR question
+// If all mandatory questions answered, returns ALLOW_FOLLOWUP to let AI ask contextual questions
+func (la *LangChainAgent) GenerateQuestionWithTracking(interview models.Interview) (string, error) {
+	// Fetch all HR memory questions for this role
+	var hrQuestions []models.HRMemory
+	if la.hrMemoryCollection != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		filter := bson.M{"active": true, "category": interview.Role}
+		cursor, err := la.hrMemoryCollection.Find(ctx, filter)
+		if err == nil {
+			defer cursor.Close(ctx)
+			_ = cursor.All(ctx, &hrQuestions)
+		}
+	}
+
+	// If no HR questions in memory, use static ones
+	if len(hrQuestions) == 0 {
+		staticQuestions := utils.GetHRInterviewQuestions(interview.Role)
+		for _, q := range staticQuestions {
+			hrQuestions = append(hrQuestions, models.HRMemory{
+				Question: q,
+			})
+		}
+	}
+
+	// Get the next question based on counter
+	if interview.HRQuestionsAsked >= len(hrQuestions) {
+		return "END_INTERVIEW", nil
+	}
+
+	nextQuestion := hrQuestions[interview.HRQuestionsAsked].Question
+	return nextQuestion, nil
 }
 
 func (la *LangChainAgent) UpdateMemory(role string, content string) {

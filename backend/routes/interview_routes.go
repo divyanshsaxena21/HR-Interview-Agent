@@ -17,5 +17,6 @@ func SetupInterviewRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 		group.GET("/:id", controller.GetInterview)
 		group.PUT("/:id/info", controller.UpdateCandidateInfo)
 		group.POST("/:id/end", controller.EndInterview)
+		group.POST("/:id/upload-document", controller.UploadDocument)
 	}
 }

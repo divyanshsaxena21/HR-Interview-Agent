@@ -1,7 +1,11 @@
 package services
 
 import (
+	"ai-recruiter/backend/models"
 	"context"
+	"log"
+	"regexp"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -10,64 +14,129 @@ import (
 )
 
 type ChatService struct {
-	interviewCollection *mongo.Collection
-	hrMemoryCollection  *mongo.Collection
-	langchainAgent      *LangChainAgent
+	interviewCollection   *mongo.Collection
+	hrMemoryCollection    *mongo.Collection
+	evaluationsCollection *mongo.Collection
+	langchainAgent        *LangChainAgent
 }
 
 func NewChatService(interviewCollection, hrMemoryCollection *mongo.Collection) *ChatService {
 	return &ChatService{
 		interviewCollection: interviewCollection,
 		hrMemoryCollection:  hrMemoryCollection,
-		langchainAgent:      NewLangChainAgent(),
+		langchainAgent:      NewLangChainAgentWithMemory(hrMemoryCollection),
+	}
+}
+
+func NewChatServiceWithEvaluations(interviewCollection, hrMemoryCollection, evaluationsCollection *mongo.Collection) *ChatService {
+	return &ChatService{
+		interviewCollection:   interviewCollection,
+		hrMemoryCollection:    hrMemoryCollection,
+		evaluationsCollection: evaluationsCollection,
+		langchainAgent:        NewLangChainAgentWithMemory(hrMemoryCollection),
 	}
 }
 
 func (cs *ChatService) ProcessMessage(ctx context.Context, interviewID primitive.ObjectID, message string) (string, error) {
-	interview := struct {
-		Messages []struct {
-			Role    string
-			Content string
-		} `bson:"messages"`
-		Email     string
-		GitHub    string
-		LinkedIn  string
-		Portfolio string
-		Role      string
-	}{}
-
+	log.Printf("[CHAT] ProcessMessage called for interview %s", interviewID.Hex())
+	var interview models.Interview
+	
 	err := cs.interviewCollection.FindOne(ctx, bson.M{"_id": interviewID}).Decode(&interview)
 	if err != nil {
+		log.Printf("[CHAT] ✗ Error finding interview %s: %v", interviewID.Hex(), err)
 		return "", err
 	}
 
-	systemPrompt := `You are an HR recruiter conducting a screening interview. 
-Your goals:
-1. Ask questions to assess candidate fit and skills
-2. Collect missing candidate information (GitHub, LinkedIn, Portfolio)
-3. Be conversational and professional
-4. If a candidate answer indicates they fail a dealbreaker requirement, internally mark them as rejected but continue the interview naturally
-5. Provide constructive feedback`
+	log.Printf("[CHAT] Found interview with %d messages, role: %s", len(interview.Messages), interview.Role)
 
-	if interview.Email == "" {
-		systemPrompt += "\n\nCandidate has not yet provided: email"
-	}
-	if interview.GitHub == "" {
-		systemPrompt += "\n\nCandidate has not provided GitHub profile"
-	}
-	if interview.LinkedIn == "" {
-		systemPrompt += "\n\nCandidate has not provided LinkedIn profile"
-	}
-	if interview.Portfolio == "" {
-		systemPrompt += "\n\nCandidate has not provided portfolio"
+	// Build system prompt that encourages HR-style follow-ups
+	systemPrompt := `You are an experienced HR recruiter conducting a screening interview.
+Your role is to assess:
+- Soft skills (communication, collaboration, problem-solving mindset)
+- Cultural fit and motivation
+- Work style and team dynamics
+- Career growth mindset
+- Professionalism and clarity of thought
+
+Guidelines:
+1. Listen carefully to what they say and ask meaningful follow-up questions
+2. Build rapport and be conversational
+3. Focus on WHY they did things, not technical HOW (this is HR screening, not technical interview)
+4. Ask about their approach to problems, collaboration style, and interpersonal skills
+5. Keep responses concise (2-3 sentences max)
+6. Ask ONE follow-up related to what they just shared
+7. Show interest in their career growth and aspirations
+
+Example follow-ups based on what they say:
+- If they mention a project: "What was the most challenging part of that project, and how did you handle disagreements?"
+- If they mention teamwork: "How do you typically handle conflict with team members?"
+- If they mention a challenge: "How did your team or manager support you through that?"
+- If they mention internship: "What was the most valuable lesson you learned about working in a professional environment?"
+
+Candidate info:` + buildProfileInfo(interview) + `
+
+IMPORTANT: Do NOT ask the mandatory interview questions yourself - those will be asked separately.
+Your job is to FOLLOW UP on what they've already answered.`
+
+	// If missing GitHub or LinkedIn, add instruction to ask naturally
+	if interview.GitHub == "" || interview.LinkedIn == "" {
+		systemPrompt += "\n\nWhen appropriate in this follow-up response, ask for their GitHub or LinkedIn profile."
 	}
 
+	log.Printf("[CHAT] Generating contextual follow-up via Groq for interview %s", interviewID.Hex())
 	response, err := cs.langchainAgent.GenerateResponse(systemPrompt, message, interview.Role)
 	if err != nil {
+		log.Printf("[CHAT] ✗ Error generating response: %v", err)
 		return "", err
 	}
 
+	// Get next unanswered mandatory HR question
+	nextQuestion, err := cs.langchainAgent.GenerateQuestionWithTracking(interview)
+	if err != nil {
+		log.Printf("[CHAT] ✗ Error getting next question: %v", err)
+		return response, nil
+	}
+
+	// If there's a next mandatory question, append it
+	if nextQuestion != "" && nextQuestion != "END_INTERVIEW" {
+		response = response + "\n\n" + nextQuestion
+		log.Printf("[CHAT] Added mandatory question to response")
+		
+		// Increment the counter
+		_, err := cs.interviewCollection.UpdateOne(ctx,
+			bson.M{"_id": interviewID},
+			bson.M{
+				"$inc": bson.M{"hr_questions_asked": 1},
+				"$set": bson.M{"updated_at": time.Now()},
+			},
+		)
+		if err != nil {
+			log.Printf("[CHAT] Error incrementing question counter: %v", err)
+		}
+	} else if nextQuestion == "END_INTERVIEW" {
+		response = response + "\n\nInterview completed."
+		log.Printf("[CHAT] All mandatory questions answered - interview complete")
+	}
+
+	log.Printf("[CHAT] ✓ Final response length: %d for interview %s", len(response), interviewID.Hex())
 	return response, nil
+}
+
+func buildProfileInfo(interview models.Interview) string {
+	info := ""
+	if interview.GitHub != "" {
+		info += "\n✓ GitHub: " + interview.GitHub
+	}
+	if interview.LinkedIn != "" {
+		info += "\n✓ LinkedIn: " + interview.LinkedIn
+	}
+	if interview.Portfolio != "" {
+		info += "\n✓ Portfolio: " + interview.Portfolio
+	}
+	if info == "" {
+		info = "\nNone yet - ask for missing links naturally"
+	}
+	return info
 }
 
 func (cs *ChatService) SaveMessage(ctx context.Context, interviewID primitive.ObjectID, role, content string) error {
@@ -87,6 +156,87 @@ func (cs *ChatService) SaveMessage(ctx context.Context, interviewID primitive.Ob
 	return err
 }
 
+// ExtractAndSaveProfileLinks extracts GitHub, LinkedIn, and Portfolio URLs from candidate message
+func (cs *ChatService) ExtractAndSaveProfileLinks(ctx context.Context, interviewID primitive.ObjectID, candidateMessage string) error {
+	links := extractProfileLinks(candidateMessage)
+	
+	if links.GitHub == "" && links.LinkedIn == "" && links.Portfolio == "" {
+		return nil // No links to save
+	}
+
+	update := bson.M{"$set": bson.M{"updated_at": time.Now()}}
+	
+	if links.GitHub != "" {
+		update["$set"].(bson.M)["github"] = links.GitHub
+		log.Printf("[CHAT] ✓ Extracted GitHub: %s", links.GitHub)
+	}
+	if links.LinkedIn != "" {
+		update["$set"].(bson.M)["linkedin"] = links.LinkedIn
+		log.Printf("[CHAT] ✓ Extracted LinkedIn: %s", links.LinkedIn)
+	}
+	if links.Portfolio != "" {
+		update["$set"].(bson.M)["portfolio"] = links.Portfolio
+		log.Printf("[CHAT] ✓ Extracted Portfolio: %s", links.Portfolio)
+	}
+
+	_, err := cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, update)
+	return err
+}
+
+type ProfileLinks struct {
+	GitHub   string
+	LinkedIn string
+	Portfolio string
+}
+
+func extractProfileLinks(message string) ProfileLinks {
+	links := ProfileLinks{}
+	lowerMsg := strings.ToLower(message)
+
+	// Extract GitHub URL
+	githubRegex := regexp.MustCompile(`(https?://)?(?:www\.)?github\.com/[\w\-]+`)
+	if matches := githubRegex.FindStringSubmatch(message); len(matches) > 0 {
+		links.GitHub = matches[0]
+		if !strings.HasPrefix(links.GitHub, "http") {
+			links.GitHub = "https://" + links.GitHub
+		}
+	}
+
+	// Extract LinkedIn URL
+	linkedinRegex := regexp.MustCompile(`(https?://)?(?:www\.)?linkedin\.com/(?:in|company)/[\w\-]+`)
+	if matches := linkedinRegex.FindStringSubmatch(message); len(matches) > 0 {
+		links.LinkedIn = matches[0]
+		if !strings.HasPrefix(links.LinkedIn, "http") {
+			links.LinkedIn = "https://" + links.LinkedIn
+		}
+	}
+
+	// Extract Portfolio URL (any other http/https URL that's not GitHub or LinkedIn)
+	urlRegex := regexp.MustCompile(`https?://[^\s]+`)
+	if matches := urlRegex.FindAllString(message, -1); len(matches) > 0 {
+		for _, url := range matches {
+			// Skip GitHub and LinkedIn URLs
+			if !strings.Contains(url, "github.com") && !strings.Contains(url, "linkedin.com") {
+				links.Portfolio = url
+				log.Printf("[CHAT] ✓ Found portfolio URL: %s", url)
+				break
+			}
+		}
+	}
+
+	// Also check for common portfolio patterns in text (e.g., "portfolio: domain.com")
+	if links.Portfolio == "" && strings.Contains(lowerMsg, "portfolio") {
+		// Try to find portfolio domain
+		portfolioRegex := regexp.MustCompile(`portfolio[:\s]+([a-zA-Z0-9\.\-]+\.[a-zA-Z]+)`)
+		if matches := portfolioRegex.FindStringSubmatch(message); len(matches) > 1 {
+			domain := matches[1]
+			links.Portfolio = "https://" + domain
+		}
+	}
+
+	return links
+}
+
 func (cs *ChatService) CheckDealbreaker(ctx context.Context, interviewID primitive.ObjectID, message string) (bool, string, error) {
 	dealbreakers, err := cs.getDealbreakers(ctx)
 	if err != nil {
@@ -102,7 +252,40 @@ func (cs *ChatService) CheckDealbreaker(ctx context.Context, interviewID primiti
 }
 
 func (cs *ChatService) MarkAsRejected(ctx context.Context, interviewID primitive.ObjectID, reason string) error {
-	_, err := cs.interviewCollection.UpdateOne(ctx,
+	// Fetch the interview to evaluate it
+	var interview models.Interview
+	err := cs.interviewCollection.FindOne(ctx, bson.M{"_id": interviewID}).Decode(&interview)
+	if err != nil {
+		log.Printf("[CHAT] Error fetching interview for rejection: %v", err)
+		// Continue even if fetch fails - mark as rejected anyway
+	} else if cs.evaluationsCollection != nil {
+		// Evaluate the interview
+		evaluationService := NewEvaluationService()
+		evaluation, err := evaluationService.EvaluateInterview(interview)
+		if err == nil && evaluation != nil {
+			result, err := cs.evaluationsCollection.InsertOne(ctx, evaluation)
+			if err == nil {
+				log.Printf("[CHAT] ✓ Created evaluation %s for rejected interview %s", result.InsertedID, interviewID.Hex())
+				// Update interview with evaluation ID and rejection
+				_, _ = cs.interviewCollection.UpdateOne(ctx,
+					bson.M{"_id": interviewID},
+					bson.M{
+						"$set": bson.M{
+							"rejected":         true,
+							"rejection_reason": reason,
+							"status":           "completed",
+							"evaluation_id":    result.InsertedID,
+							"updated_at":       time.Now(),
+						},
+					},
+				)
+				return nil
+			}
+		}
+	}
+
+	// Fallback: mark as rejected without evaluation
+	_, err = cs.interviewCollection.UpdateOne(ctx,
 		bson.M{"_id": interviewID},
 		bson.M{
 			"$set": bson.M{
@@ -134,6 +317,11 @@ func (cs *ChatService) getDealbreakers(ctx context.Context) ([]DealBreakerQuesti
 		return nil, err
 	}
 	return dealbreakers, nil
+}
+
+// TrackAskedQuestions is now a no-op since we use counter-based tracking
+func (cs *ChatService) TrackAskedQuestions(ctx context.Context, interviewID primitive.ObjectID) error {
+	return nil
 }
 
 func matchesDealbreaker(message, question string) bool {
