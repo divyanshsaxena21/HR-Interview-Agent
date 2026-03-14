@@ -49,7 +49,68 @@ func (cs *ChatService) ProcessMessage(ctx context.Context, interviewID primitive
 
 	log.Printf("[CHAT] Found interview with %d messages, role: %s", len(interview.Messages), interview.Role)
 
-	// Build system prompt that encourages HR-style follow-ups
+	// Check if interview should end based on message count (8-10 is typical)
+	messageCount := len(interview.Messages)
+	shouldEndInterview := messageCount >= 8 // After about 4 Q&A exchanges
+
+	// Check for missing candidate information
+	missingInfo := getMissingInfo(interview)
+
+	// If should end and missing info, ask for it
+	if shouldEndInterview && len(missingInfo) > 0 {
+		response := "We're wrapping up the interview. Before we finish, could you please provide the following information:\n"
+		for _, info := range missingInfo {
+			response += "- " + info + "\n"
+		}
+		response += "\nYou can share these directly or type 'skip' if they're not available."
+		
+		log.Printf("[CHAT] Requesting missing info. Message count: %d", messageCount)
+		return response, nil
+	}
+
+	// If should end and no missing info, wrap up interview
+	if shouldEndInterview && len(missingInfo) == 0 {
+		conclusion := "Thank you for taking the time to interview with us today! We've covered a lot of ground and I appreciate your thoughtful responses. We'll review your interview and get back to you soon. Have a great day!"
+		
+		// Mark interview as completed
+		_, err := cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, bson.M{
+			"$set": bson.M{"status": "completed", "updated_at": time.Now()},
+		})
+		if err != nil {
+			log.Printf("[CHAT] Error marking interview as completed: %v", err)
+		}
+		
+		log.Printf("[CHAT] Interview completed. Final message count: %d", messageCount)
+		return conclusion, nil
+	}
+
+	// During the interview (before reaching 8 messages), ask structured questions
+	// Ask mandatory HR questions first, then role-based questions from HR Memory
+	nextQuestion, err := cs.langchainAgent.GenerateQuestionWithTracking(interview)
+	if err != nil {
+		log.Printf("[CHAT] ✗ Error getting next question: %v", err)
+		nextQuestion = ""
+	}
+
+	if nextQuestion != "" && nextQuestion != "END_INTERVIEW" {
+		log.Printf("[CHAT] ✓ Returning mandatory question at message count %d", messageCount)
+		
+		// Increment the question counter so next call gets the next question
+		_, err := cs.interviewCollection.UpdateOne(ctx,
+			bson.M{"_id": interviewID},
+			bson.M{
+				"$inc": bson.M{"hr_questions_asked": 1},
+				"$set": bson.M{"updated_at": time.Now()},
+			},
+		)
+		if err != nil {
+			log.Printf("[CHAT] Error incrementing question counter: %v", err)
+		}
+		
+		return nextQuestion, nil
+	}
+
+	// Build system prompt for contextual follow-ups (only used if all mandatory questions done)
 	systemPrompt := `You are an experienced HR recruiter conducting a screening interview.
 Your role is to assess:
 - Soft skills (communication, collaboration, problem-solving mindset)
@@ -90,34 +151,6 @@ Your job is to FOLLOW UP on what they've already answered.`
 		return "", err
 	}
 
-	// Get next unanswered mandatory HR question
-	nextQuestion, err := cs.langchainAgent.GenerateQuestionWithTracking(interview)
-	if err != nil {
-		log.Printf("[CHAT] ✗ Error getting next question: %v", err)
-		return response, nil
-	}
-
-	// If there's a next mandatory question, append it
-	if nextQuestion != "" && nextQuestion != "END_INTERVIEW" {
-		response = response + "\n\n" + nextQuestion
-		log.Printf("[CHAT] Added mandatory question to response")
-		
-		// Increment the counter
-		_, err := cs.interviewCollection.UpdateOne(ctx,
-			bson.M{"_id": interviewID},
-			bson.M{
-				"$inc": bson.M{"hr_questions_asked": 1},
-				"$set": bson.M{"updated_at": time.Now()},
-			},
-		)
-		if err != nil {
-			log.Printf("[CHAT] Error incrementing question counter: %v", err)
-		}
-	} else if nextQuestion == "END_INTERVIEW" {
-		response = response + "\n\nInterview completed."
-		log.Printf("[CHAT] All mandatory questions answered - interview complete")
-	}
-
 	log.Printf("[CHAT] ✓ Final response length: %d for interview %s", len(response), interviewID.Hex())
 	return response, nil
 }
@@ -137,6 +170,18 @@ func buildProfileInfo(interview models.Interview) string {
 		info = "\nNone yet - ask for missing links naturally"
 	}
 	return info
+}
+
+func getMissingInfo(interview models.Interview) []string {
+	var missing []string
+	if interview.GitHub == "" {
+		missing = append(missing, "GitHub profile URL")
+	}
+	if interview.LinkedIn == "" {
+		missing = append(missing, "LinkedIn profile URL")
+	}
+	// Note: We'll ask for resume/documents separately if needed
+	return missing
 }
 
 func (cs *ChatService) SaveMessage(ctx context.Context, interviewID primitive.ObjectID, role, content string) error {

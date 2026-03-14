@@ -31,6 +31,12 @@ export default function ChatInterface({ interviewId, candidateName }: ChatInterf
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // Only connect if we don't already have an active connection
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      console.log('[WS] Already connected, skipping reconnect')
+      return
+    }
+
     const wsUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:8080'
     const wsProtocol = wsUrl.startsWith('https') ? 'wss' : 'ws'
     const wsPath = `${wsProtocol}://${wsUrl.replace(/^https?:\/\//, '')}/ws/${interviewId}/${candidateName}`
@@ -38,12 +44,16 @@ export default function ChatInterface({ interviewId, candidateName }: ChatInterf
     console.log('[WS] Connecting to:', wsPath)
     
     const ws = new WebSocket(wsPath)
+    let isMounted = true
     
     ws.onopen = () => {
-      console.log('[WS] ✓ Connected')
+      if (isMounted) {
+        console.log('[WS] ✓ Connected')
+      }
     }
     
     ws.onmessage = (event) => {
+      if (!isMounted) return
       try {
         const data = JSON.parse(event.data)
         console.log('[WS] ✓ Received:', data.type)
@@ -65,22 +75,35 @@ export default function ChatInterface({ interviewId, candidateName }: ChatInterf
     }
     
     ws.onerror = (error) => {
-      console.error('[WS] ✗ Connection error:', error)
+      if (isMounted) {
+        console.error('[WS] ✗ Connection error:', error)
+      }
     }
     
     ws.onclose = () => {
-      console.log('[WS] Disconnected')
+      if (isMounted) {
+        console.log('[WS] Disconnected')
+      }
     }
     
     wsRef.current = ws
     
     return () => {
-      if (wsRef.current) {
-        console.log('[WS] Closing connection')
+      isMounted = false
+      // Don't close immediately - let the connection persist across hot reloads
+      // Only close when component actually unmounts (interviewId changes)
+    }
+  }, [interviewId, candidateName])
+
+  // Cleanup on actual unmount
+  useEffect(() => {
+    return () => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        console.log('[WS] Component unmounting, closing connection')
         wsRef.current.close()
       }
     }
-  }, [interviewId, candidateName])
+  }, [])
 
   // Fetch existing messages and request initial AI question if none
   useEffect(() => {

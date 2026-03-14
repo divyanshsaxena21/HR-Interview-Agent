@@ -43,14 +43,24 @@ func SetupWebSocketRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 
 		log.Printf("[WS] ✓ Client connected: interviewId=%s, candidateName=%s", interviewId, candidateName)
 
-		// Look up interview by session_id to get the ObjectID
+		// Look up interview by session_id first (UUID), then fall back to ObjectID (_id)
 		var interview map[string]interface{}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err = interviewCollection.FindOne(ctx, bson.M{"session_id": interviewId}).Decode(&interview)
 		cancel()
 		
+		// If not found by session_id, try by ObjectID
 		if err != nil {
-			log.Printf("[WS] ✗ Interview not found for session_id %s: %v", interviewId, err)
+			objID, parseErr := primitive.ObjectIDFromHex(interviewId)
+			if parseErr == nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err = interviewCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&interview)
+				cancel()
+			}
+		}
+		
+		if err != nil {
+			log.Printf("[WS] ✗ Interview not found for %s: %v", interviewId, err)
 			conn.WriteJSON(map[string]interface{}{
 				"type":    "error",
 				"content": "Interview not found",

@@ -338,7 +338,11 @@ func (ic *InterviewController) StartAIQuestion(c *gin.Context) {
 	first := qs[0]
 	msg := models.Message{Role: "ai", Content: first, Timestamp: time.Now().Unix()}
 
-	_, err = collection.UpdateOne(context.Background(), bson.M{"_id": interview.ID}, bson.M{"$push": bson.M{"messages": msg}, "$set": bson.M{"updated_at": time.Now()}})
+	_, err = collection.UpdateOne(context.Background(), bson.M{"_id": interview.ID}, bson.M{
+		"$push": bson.M{"messages": msg},
+		"$set": bson.M{"updated_at": time.Now()},
+		"$inc": bson.M{"hr_questions_asked": 1},
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

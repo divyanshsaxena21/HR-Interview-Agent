@@ -23,6 +23,10 @@ interface Interview {
     data: string
     uploaded_at: number
   }>
+  messages?: Array<{
+    role: string
+    content: string
+  }>
   message_count: number
   status?: string
   rejected?: boolean
@@ -222,10 +226,7 @@ export default function AdminDashboardPage() {
                           <th className="px-4 py-3 text-left text-xs font-bold text-gray-700">Role</th>
                           <th className="px-4 py-3 text-left text-xs font-bold text-gray-700">Status</th>
                           <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Messages</th>
-                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Communication</th>
-                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Technical</th>
-                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Confidence</th>
-                          <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Problem Solving</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-700">Interview Summary</th>
                           <th className="px-4 py-3 text-center text-xs font-bold text-gray-700">Fit</th>
                         </tr>
                       </thead>
@@ -266,46 +267,25 @@ export default function AdminDashboardPage() {
                                 </div>
                               </td>
                               <td className="px-4 py-3 text-center text-sm font-medium text-gray-800">{interview.message_count || 0}</td>
-                              <td className="px-4 py-3 text-center">
-                                {interview.evaluation?.communication_score != null ? (
-                                  <span className="px-2 py-1 bg-blue-100 text-blue-900 rounded-full text-xs font-bold">{interview.evaluation.communication_score}/10</span>
+                              <td className="px-4 py-3 text-left text-sm">
+                                {interview.evaluation?.summary ? (
+                                  <p className="text-gray-700 line-clamp-2">{interview.evaluation.summary}</p>
                                 ) : (
-                                  <span className="text-gray-400 text-xs">-</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {interview.evaluation?.technical_score != null ? (
-                                  <span className="px-2 py-1 bg-purple-100 text-purple-900 rounded-full text-xs font-bold">{interview.evaluation.technical_score}/10</span>
-                                ) : (
-                                  <span className="text-gray-400 text-xs">-</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {interview.evaluation?.confidence_score != null ? (
-                                  <span className="px-2 py-1 bg-indigo-100 text-indigo-900 rounded-full text-xs font-bold">{interview.evaluation.confidence_score}/10</span>
-                                ) : (
-                                  <span className="text-gray-400 text-xs">-</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {interview.evaluation?.problem_solving_score != null ? (
-                                  <span className="px-2 py-1 bg-green-100 text-green-900 rounded-full text-xs font-bold">{interview.evaluation.problem_solving_score}/10</span>
-                                ) : (
-                                  <span className="text-gray-400 text-xs">-</span>
+                                  <span className="text-gray-400 text-xs">No summary available</span>
                                 )}
                               </td>
                               <td className="px-4 py-3 text-center">
                                 {interview.evaluation?.fit && (
                                   <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
                                     interview.evaluation.fit === 'strong_yes' ? 'bg-green-100 text-green-800' :
-                                      interview.evaluation.fit === 'yes' ? 'bg-blue-100 text-blue-800' :
-                                      interview.evaluation.fit === 'maybe' ? 'bg-yellow-100 text-yellow-800' :
-                                      'bg-red-100 text-red-800'
-                                    }`}>
-                                      {interview.evaluation.fit.replace('_', ' ')}
-                                    </span>
-                                  )}
-                                </td>
+                                    interview.evaluation.fit === 'yes' ? 'bg-blue-100 text-blue-800' :
+                                    interview.evaluation.fit === 'maybe' ? 'bg-yellow-100 text-yellow-800' :
+                                    'bg-red-100 text-red-800'
+                                  }`}>
+                                    {interview.evaluation.fit.replace('_', ' ')}
+                                  </span>
+                                )}
+                              </td>
                               </tr>
 
                               {/* Expanded Details Row */}
@@ -424,35 +404,28 @@ export default function AdminDashboardPage() {
                                         </div>
                                       )}
 
-                                      {/* Evaluation Summary */}
-                                      {interview.evaluation && (
-                                        <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                          <h4 className="font-bold text-blue-800 mb-2">📊 Evaluation Summary</h4>
-                                          {interview.evaluation.summary && (
-                                            <p className="text-blue-700 text-sm mb-3">{interview.evaluation.summary}</p>
-                                          )}
-                                          {interview.evaluation.strengths && interview.evaluation.strengths.length > 0 && (
-                                            <div className="mb-2">
-                                              <p className="text-xs font-medium text-blue-800">Strengths:</p>
-                                              <ul className="text-xs text-blue-700 list-disc list-inside">
-                                                {interview.evaluation.strengths.map((s, i) => (
-                                                  <li key={i}>{s}</li>
-                                                ))}
-                                              </ul>
-                                            </div>
-                                          )}
-                                          {interview.evaluation.weaknesses && interview.evaluation.weaknesses.length > 0 && (
-                                            <div>
-                                              <p className="text-xs font-medium text-blue-800">Weaknesses:</p>
-                                              <ul className="text-xs text-blue-700 list-disc list-inside">
-                                                {interview.evaluation.weaknesses.map((w, i) => (
-                                                  <li key={i}>{w}</li>
-                                                ))}
-                                              </ul>
-                                            </div>
+                                      {/* Interview Transcript */}
+                                      <div className="md:col-span-2 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                        <h4 className="font-bold text-gray-800 mb-4">💬 Interview Transcript</h4>
+                                        
+                                        <div className="space-y-4 max-h-96 overflow-y-auto">
+                                          {interview.messages && interview.messages.length > 0 ? (
+                                            interview.messages.map((msg, idx) => (
+                                              <div key={idx} className={`flex ${msg.role === 'candidate' ? 'justify-end' : 'justify-start'}`}>
+                                                <div className={`max-w-xs lg:max-w-md xl:max-w-lg px-4 py-2 rounded-lg ${
+                                                  msg.role === 'candidate' 
+                                                    ? 'bg-blue-500 text-white rounded-br-none' 
+                                                    : 'bg-white border border-gray-300 text-gray-800 rounded-bl-none'
+                                                }`}>
+                                                  <p className="text-sm leading-relaxed">{msg.content}</p>
+                                                </div>
+                                              </div>
+                                            ))
+                                          ) : (
+                                            <p className="text-gray-500 text-sm text-center py-4">No interview messages recorded</p>
                                           )}
                                         </div>
-                                      )}
+                                      </div>
 
                                       {/* Actions */}
                                       <div className="md:col-span-2 bg-red-50 border border-red-200 rounded-lg p-4">

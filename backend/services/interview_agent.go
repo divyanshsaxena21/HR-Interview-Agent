@@ -47,6 +47,49 @@ func (ia *InterviewAgent) Execute(ctx context.Context, state *AgentState) (*Agen
 
 	userMessage := lastMsg["content"].(string)
 
+	// Count messages to determine if interview should end (after 10+ exchanges)
+	messageCount := len(state.Messages)
+	shouldEndInterview := messageCount >= 20 // ~10 Q&A exchanges
+
+	// Check for missing candidate information
+	missingInfo := ia.checkMissingInfo(ctx, state)
+
+	// If should end and missing info, ask for it
+	if shouldEndInterview && len(missingInfo) > 0 {
+		response := "We're wrapping up the interview. Before we finish, could you please provide:\n"
+		for _, info := range missingInfo {
+			response += "- " + info + "\n"
+		}
+		response += "\nYou can share these directly or type 'skip' if they're not available."
+
+		state.Messages = append(state.Messages, map[string]interface{}{
+			"role":    "assistant",
+			"content": response,
+		})
+		ia.storeMessages(ctx, state)
+		return state, nil
+	}
+
+	// If should end and no missing info, wrap up interview
+	if shouldEndInterview && len(missingInfo) == 0 {
+		conclusion := "Thank you for taking the time to interview with us today! We've covered a lot of ground and I appreciate your thoughtful responses. We'll review your interview and get back to you soon. Have a great day!"
+
+		state.Messages = append(state.Messages, map[string]interface{}{
+			"role":    "assistant",
+			"content": conclusion,
+		})
+
+		// Mark interview as completed
+		coll := ia.db.Database("ai_recruiter").Collection("interviews")
+		coll.UpdateOne(ctx, bson.M{"session_id": state.SessionID}, bson.M{
+			"$set": bson.M{"status": "completed"},
+		})
+
+		ia.storeMessages(ctx, state)
+		return state, nil
+	}
+
+	// Normal interview flow
 	// Get HR memory questions for this role
 	questions, err := ia.getHRQuestions(ctx)
 	if err != nil {
@@ -116,6 +159,40 @@ Question Bank:
 	}
 
 	return prompt
+}
+
+func (ia *InterviewAgent) checkMissingInfo(ctx context.Context, state *AgentState) []string {
+	// Get interview from database
+	coll := ia.db.Database("ai_recruiter").Collection("interviews")
+	var interview bson.M
+	err := coll.FindOne(ctx, bson.M{"session_id": state.SessionID}).Decode(&interview)
+	if err != nil {
+		log.Printf("Error fetching interview: %v", err)
+		return []string{}
+	}
+
+	var missing []string
+
+	// Check for GitHub
+	github, _ := interview["github"].(string)
+	if github == "" {
+		missing = append(missing, "GitHub profile link")
+	}
+
+	// Check for LinkedIn
+	linkedin, _ := interview["linkedin"].(string)
+	if linkedin == "" {
+		missing = append(missing, "LinkedIn profile link")
+	}
+
+	// Check for Portfolio/Resume
+	portfolio, _ := interview["portfolio"].(string)
+	documents, _ := interview["documents"].([]interface{})
+	if portfolio == "" && len(documents) == 0 {
+		missing = append(missing, "Portfolio or Resume")
+	}
+
+	return missing
 }
 
 func (ia *InterviewAgent) storeMessages(ctx context.Context, state *AgentState) {

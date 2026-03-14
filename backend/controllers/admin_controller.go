@@ -38,6 +38,7 @@ type InterviewWithEvaluation struct {
 	UpdatedAt       time.Time         `json:"updated_at"`
 	Evaluation      *models.Evaluation `json:"evaluation,omitempty"`
 	MessageCount    int               `json:"message_count"`
+	Messages        []models.Message  `json:"messages,omitempty"`
 }
 
 func NewAdminController(db *mongo.Client) *AdminController {
@@ -133,6 +134,7 @@ func (ac *AdminController) GetAllInterviews(c *gin.Context) {
 			CreatedAt:       interview.CreatedAt,
 			UpdatedAt:       interview.UpdatedAt,
 			MessageCount:    len(interview.Messages),
+			Messages:        interview.Messages,
 		}
 
 		// Fetch evaluation if EvaluationID exists
