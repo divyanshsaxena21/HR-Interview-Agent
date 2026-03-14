@@ -49,9 +49,10 @@ func (cs *ChatService) ProcessMessage(ctx context.Context, interviewID primitive
 
 	log.Printf("[CHAT] Found interview with %d messages, role: %s", len(interview.Messages), interview.Role)
 
-	// Check if interview should end based on message count (8-10 is typical)
+	// Check if interview should end based on message count
+	// Now that we're asking both static (8) + memory questions (dealbreakers), allow more messages
 	messageCount := len(interview.Messages)
-	shouldEndInterview := messageCount >= 8 // After about 4 Q&A exchanges
+	shouldEndInterview := messageCount >= 16 // ~8 questions with potential dealbreakers
 
 	// Check for missing candidate information
 	missingInfo := getMissingInfo(interview)

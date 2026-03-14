@@ -172,10 +172,16 @@ func (la *LangChainAgent) GenerateQuestion(transcript []models.Message, role str
 }
 
 // GenerateQuestionWithTracking returns the next unanswered mandatory HR question
-// If all mandatory questions answered, returns ALLOW_FOLLOWUP to let AI ask contextual questions
+// Combines both static questions and HR Memory questions (dealbreakers, role-specific)
 func (la *LangChainAgent) GenerateQuestionWithTracking(interview models.Interview) (string, error) {
-	// Fetch all HR memory questions for this role
-	var hrQuestions []models.HRMemory
+	// Start with mandatory static questions (8 HR screening questions)
+	staticQuestions := utils.GetHRInterviewQuestions(interview.Role)
+	allQuestions := []string{}
+	for _, q := range staticQuestions {
+		allQuestions = append(allQuestions, q)
+	}
+
+	// Add HR memory questions (dealbreakers, role-specific, etc.)
 	if la.hrMemoryCollection != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -184,26 +190,22 @@ func (la *LangChainAgent) GenerateQuestionWithTracking(interview models.Intervie
 		cursor, err := la.hrMemoryCollection.Find(ctx, filter)
 		if err == nil {
 			defer cursor.Close(ctx)
-			_ = cursor.All(ctx, &hrQuestions)
-		}
-	}
-
-	// If no HR questions in memory, use static ones
-	if len(hrQuestions) == 0 {
-		staticQuestions := utils.GetHRInterviewQuestions(interview.Role)
-		for _, q := range staticQuestions {
-			hrQuestions = append(hrQuestions, models.HRMemory{
-				Question: q,
-			})
+			var hrQuestions []models.HRMemory
+			if cursorErr := cursor.All(ctx, &hrQuestions); cursorErr == nil {
+				// Add HR Memory questions (these include dealbreakers and role-specific questions)
+				for _, hq := range hrQuestions {
+					allQuestions = append(allQuestions, hq.Question)
+				}
+			}
 		}
 	}
 
 	// Get the next question based on counter
-	if interview.HRQuestionsAsked >= len(hrQuestions) {
+	if interview.HRQuestionsAsked >= len(allQuestions) {
 		return "END_INTERVIEW", nil
 	}
 
-	nextQuestion := hrQuestions[interview.HRQuestionsAsked].Question
+	nextQuestion := allQuestions[interview.HRQuestionsAsked]
 	return nextQuestion, nil
 }
 

@@ -8,35 +8,35 @@ import (
 func GetHRInterviewQuestions(role string) []string {
 	return []string{
 		// Q1: Background
-		"Tell me about your background and professional experience.",
+		"Let's start with the basics - could you tell me a bit about your background and your professional experience so far?",
 
 		// Q2: Tech/Skills for role
-		fmt.Sprintf("What's your experience with the key technologies and skills required for this %s role?", role),
+		fmt.Sprintf("Since you're interested in the %s position, what relevant technologies or skills do you have experience with? Walk me through a couple that you're most comfortable with.", role),
 
 		// Q3: Key Achievement
-		"What's a project or accomplishment you're proud of, and what was your role?",
+		"Can you think of a project or accomplishment that you're really proud of? I'd love to hear about what you did and what your specific role was in making it happen.",
 
 		// Q4: Problem-Solving & Learning
-		"Describe a challenging situation you faced at work, how you handled it, and what you learned.",
+		"Tell me about a time when you faced a challenging situation at work. What happened, how did you tackle it, and what was the key lesson you learned from it?",
 
 		// Q5: Teamwork & Collaboration
-		"Tell me about a time you worked in a team. What was your role and how did you contribute?",
+		"Most of our work involves collaborating with others. Can you share an example of a time you worked in a team? What did you contribute, and how did you interact with your teammates?",
 
 		// Q6: Motivation & Alignment
-		fmt.Sprintf("Why are you interested in this %s position, and how does it align with your career goals?", role),
+		fmt.Sprintf("What is it about this %s role that drew you to apply? How does it fit with where you want to take your career?", role),
 
 		// Q7: Availability & Constraints
-		"Are you available to start soon? Please mention your notice period or any other constraints.",
+		"On a practical note - are you in a position to start soon if we move forward? Is there a notice period or any other constraints we should know about?",
 
 		// Q8: Culture & Development
-		"What kind of work environment do you thrive in, and what are your expectations from a company in terms of growth and development?",
+		"Finally, what kind of work environment helps you do your best work? And what are you looking for from a company in terms of growth and development opportunities?",
 	}
 }
 
 func GetSystemPrompt(role string) string {
 	return `You are a professional HR recruiter conducting an initial screening interview.
 
-Interview is structured over 8-10 questions only. After the 10th question, the interview will conclude with a thank you message.
+Interview is structured over 8-12 questions only. After all questions, the interview will conclude with a thank you message.
 
 Guidelines:
 - Ask one clear question at a time
