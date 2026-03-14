@@ -132,10 +132,16 @@ func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessio
 func (es *EmailService) sendEmailViaBrevo(to, subject, htmlBody string) error {
 	const brevoURL = "https://api.brevo.com/v3/smtp/email"
 	
+	// Get sender email from env, fallback to default
+	senderEmail := os.Getenv("SENDER_EMAIL")
+	if senderEmail == "" {
+		senderEmail = "noreply@voxhire.ai"
+	}
+	
 	payload := map[string]interface{}{
 		"sender": map[string]string{
 			"name":  "VoxHire AI",
-			"email": "hr@voxhire.com",
+			"email": senderEmail,
 		},
 		"to": []map[string]string{
 			{
@@ -184,8 +190,15 @@ func (es *EmailService) sendEmailViaBrevo(to, subject, htmlBody string) error {
 func (es *EmailService) sendEmailViaResend(to, subject, htmlBody string) error {
 	const resendURL = "https://api.resend.com/emails"
 	
+	// Get sender email from env, fallback to default
+	senderEmail := os.Getenv("SENDER_EMAIL")
+	if senderEmail == "" {
+		// Default: use onboarding@resend.dev which works without domain verification
+		senderEmail = "onboarding@resend.dev"
+	}
+	
 	payload := map[string]interface{}{
-		"from":    "hr@voxhire.com",
+		"from":    senderEmail,
 		"to":      to,
 		"subject": subject,
 		"html":    htmlBody,
@@ -207,7 +220,7 @@ func (es *EmailService) sendEmailViaResend(to, subject, htmlBody string) error {
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", es.resendKey))
 	req.Header.Set("Content-Type", "application/json")
 	
-	log.Printf("[EMAIL] [DEBUG] Sending email via Resend to %s with subject: %s", to, subject)
+	log.Printf("[EMAIL] [DEBUG] Sending email via Resend from %s to %s with subject: %s", senderEmail, to, subject)
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("[EMAIL] [ERROR] Resend request failed: %v", err)
@@ -229,6 +242,12 @@ func (es *EmailService) sendEmailViaResend(to, subject, htmlBody string) error {
 func (es *EmailService) sendEmailViaSendGrid(to, subject, htmlBody string) error {
 	const sendgridURL = "https://api.sendgrid.com/v3/mail/send"
 	
+	// Get sender email from env, fallback to default
+	senderEmail := os.Getenv("SENDER_EMAIL")
+	if senderEmail == "" {
+		senderEmail = "noreply@sendgrid.com"
+	}
+	
 	payload := map[string]interface{}{
 		"personalizations": []map[string]interface{}{
 			{
@@ -238,7 +257,7 @@ func (es *EmailService) sendEmailViaSendGrid(to, subject, htmlBody string) error
 			},
 		},
 		"from": map[string]string{
-			"email": "hr@voxhire.com",
+			"email": senderEmail,
 			"name":  "VoxHire AI",
 		},
 		"subject": subject,
