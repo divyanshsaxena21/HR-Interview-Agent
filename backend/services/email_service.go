@@ -1,21 +1,55 @@
 package services
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/smtp"
 	"os"
 	"strconv"
 )
 
 type EmailService struct {
+	// SMTP config
 	smtpHost string
 	smtpPort int
 	smtpUser string
 	smtpPass string
+	
+	// SendGrid config
+	sendgridKey string
+	useSendGrid bool
+	
+	// Resend config
+	resendKey string
+	useResend bool
 }
 
 func NewEmailService() *EmailService {
+	// Check if Resend is configured (preferred)
+	resendKey := os.Getenv("RESEND_API_KEY")
+	if resendKey != "" {
+		log.Printf("[EMAIL] Using Resend service")
+		return &EmailService{
+			resendKey: resendKey,
+			useResend: true,
+		}
+	}
+	
+	// Check if SendGrid is configured
+	sendgridKey := os.Getenv("SENDGRID_API_KEY")
+	if sendgridKey != "" {
+		log.Printf("[EMAIL] Using SendGrid service")
+		return &EmailService{
+			sendgridKey: sendgridKey,
+			useSendGrid: true,
+		}
+	}
+	
+	// Fall back to SMTP
 	port, _ := strconv.Atoi(os.Getenv("SMTP_PORT"))
 	return &EmailService{
 		smtpHost: os.Getenv("SMTP_HOST"),
@@ -27,8 +61,9 @@ func NewEmailService() *EmailService {
 
 // SendInterviewEmail sends interview invitation to candidate
 func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessionID string) error {
-	if es.smtpHost == "" {
-		log.Printf("[EMAIL] SMTP not configured (SMTP_HOST env var not set), skipping email to %s", candidateEmail)
+	// Check if email service is configured
+	if !es.useSendGrid && es.smtpHost == "" {
+		log.Printf("[EMAIL] No email service configured (SendGrid or SMTP), skipping email to %s", candidateEmail)
 		return nil
 	}
 
@@ -36,6 +71,11 @@ func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessio
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
 		frontendURL = "http://localhost:3000"
+	}
+	
+	// Remove trailing slash if present
+	if len(frontendURL) > 0 && frontendURL[len(frontendURL)-1] == '/' {
+		frontendURL = frontendURL[:len(frontendURL)-1]
 	}
 
 	subject := "Your Interview Has Been Scheduled - VoxHire AI"
@@ -61,7 +101,118 @@ func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessio
 `, candidateName, interviewURL, interviewURL, interviewURL)
 
 	log.Printf("[EMAIL] Sending interview email to %s with URL: %s", candidateEmail, interviewURL)
+	
+	if es.useResend {
+		return es.sendEmailViaResend(candidateEmail, subject, body)
+	}
+	if es.useSendGrid {
+		return es.sendEmailViaSendGrid(candidateEmail, subject, body)
+	}
 	return es.sendEmail(candidateEmail, subject, body)
+}
+
+// sendEmailViaResend sends email using Resend API
+func (es *EmailService) sendEmailViaResend(to, subject, htmlBody string) error {
+	const resendURL = "https://api.resend.com/emails"
+	
+	payload := map[string]interface{}{
+		"from":    "hr@voxhire.com",
+		"to":      to,
+		"subject": subject,
+		"html":    htmlBody,
+	}
+	
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[EMAIL] [ERROR] Failed to marshal Resend payload: %v", err)
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+	
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", resendURL, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		log.Printf("[EMAIL] [ERROR] Failed to create Resend request: %v", err)
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", es.resendKey))
+	req.Header.Set("Content-Type", "application/json")
+	
+	log.Printf("[EMAIL] [DEBUG] Sending email via Resend to %s with subject: %s", to, subject)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[EMAIL] [ERROR] Resend request failed: %v", err)
+		return fmt.Errorf("resend request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[EMAIL] [ERROR] Resend returned status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("resend error (status %d): %s", resp.StatusCode, string(body))
+	}
+	
+	log.Printf("[EMAIL] [SUCCESS] Email sent via Resend to %s", to)
+	return nil
+}
+
+// sendEmailViaSendGrid sends email using SendGrid API
+func (es *EmailService) sendEmailViaSendGrid(to, subject, htmlBody string) error {
+	const sendgridURL = "https://api.sendgrid.com/v3/mail/send"
+	
+	payload := map[string]interface{}{
+		"personalizations": []map[string]interface{}{
+			{
+				"to": []map[string]string{
+					{"email": to},
+				},
+			},
+		},
+		"from": map[string]string{
+			"email": "hr@voxhire.com",
+			"name":  "VoxHire AI",
+		},
+		"subject": subject,
+		"content": []map[string]string{
+			{
+				"type":  "text/html",
+				"value": htmlBody,
+			},
+		},
+	}
+	
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[EMAIL] [ERROR] Failed to marshal SendGrid payload: %v", err)
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+	
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", sendgridURL, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		log.Printf("[EMAIL] [ERROR] Failed to create SendGrid request: %v", err)
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", es.sendgridKey))
+	req.Header.Set("Content-Type", "application/json")
+	
+	log.Printf("[EMAIL] [DEBUG] Sending email via SendGrid to %s with subject: %s", to, subject)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[EMAIL] [ERROR] SendGrid request failed: %v", err)
+		return fmt.Errorf("sendgrid request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[EMAIL] [ERROR] SendGrid returned status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("sendgrid error (status %d): %s", resp.StatusCode, string(body))
+	}
+	
+	log.Printf("[EMAIL] [SUCCESS] Email sent via SendGrid to %s", to)
+	return nil
 }
 
 // SendRejectionEmail notifies candidate of rejection
