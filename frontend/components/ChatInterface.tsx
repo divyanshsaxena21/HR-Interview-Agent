@@ -58,13 +58,21 @@ export default function ChatInterface({ interviewId, candidateName }: ChatInterf
         const data = JSON.parse(event.data)
         console.log('[WS] ✓ Received:', data.type)
         
-        if (data.type === 'ai_message') {
+        if (data.type === 'ai_message' || data.type === 'interview_ended') {
           setMessages(prev => [...prev, {
             role: 'ai',
             content: data.content,
             timestamp: Date.now()
           }])
           setIsLoading(false)
+          
+          // If interview is ended, auto-redirect after showing the message
+          if (data.type === 'interview_ended') {
+            console.log('[Interview] Completed - redirecting to completion page')
+            setTimeout(() => {
+              window.location.href = '/interview/complete'
+            }, 2000) // Give 2 seconds to read the final message
+          }
         } else if (data.type === 'error') {
           console.error('[WS] Server error:', data.content)
           setIsLoading(false)

@@ -73,12 +73,24 @@ func (cs *ChatService) ProcessMessage(ctx context.Context, interviewID primitive
 	if shouldEndInterview && len(missingInfo) == 0 {
 		conclusion := "Thank you for taking the time to interview with us today! We've covered a lot of ground and I appreciate your thoughtful responses. We'll review your interview and get back to you soon. Have a great day!"
 		
-		// Mark interview as completed
+		// Mark interview as completed and update candidate status to interviewed
 		_, err := cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, bson.M{
 			"$set": bson.M{"status": "completed", "updated_at": time.Now()},
 		})
 		if err != nil {
 			log.Printf("[CHAT] Error marking interview as completed: %v", err)
+		}
+		
+		// Get candidate ID from interview and update candidate status to interviewed
+		var interview map[string]interface{}
+		cs.interviewCollection.FindOne(ctx, bson.M{"_id": interviewID}).Decode(&interview)
+		if candidateID, ok := interview["candidate_id"].(string); ok {
+			candidateObjID, err := primitive.ObjectIDFromHex(candidateID)
+			if err == nil {
+				cs.interviewCollection.Database().Collection("candidates").UpdateOne(ctx, bson.M{"_id": candidateObjID}, bson.M{
+					"$set": bson.M{"status": "interviewed"},
+				})
+			}
 		}
 		
 		log.Printf("[CHAT] Interview completed. Final message count: %d", messageCount)

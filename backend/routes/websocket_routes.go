@@ -164,9 +164,19 @@ func SetupWebSocketRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 
 				log.Printf("[WS] ✓ Sending response of length %d", len(response))
 
+				// Check if interview is now completed
+				var updatedInterview map[string]interface{}
+				interviewCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedInterview)
+				status, _ := updatedInterview["status"].(string)
+
 				// Send response to client
+				messageType := "ai_message"
+				if status == "completed" {
+					messageType = "interview_ended"
+				}
+
 				err = conn.WriteJSON(map[string]interface{}{
-					"type":    "ai_message",
+					"type":    messageType,
 					"content": response,
 				})
 				if err != nil {

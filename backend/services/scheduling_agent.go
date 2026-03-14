@@ -84,10 +84,10 @@ func (sa *SchedulingAgent) Execute(ctx context.Context, state *AgentState) (*Age
 	state.Context["interview_id"] = result.InsertedID
 	state.Context["session_created_at"] = time.Now()
 
-	// Update candidate status
+	// Update candidate status to in_progress (interview scheduled but not yet completed)
 	candidateColl := sa.db.Database("ai_recruiter").Collection("candidates")
 	_, err = candidateColl.UpdateOne(ctx, bson.M{"_id": candidateObjID}, bson.M{
-		"$set": bson.M{"status": "interviewed"},
+		"$set": bson.M{"status": "in_progress"},
 	})
 	if err != nil {
 		log.Printf("Warning: Failed to update candidate status: %v", err)
