@@ -19,6 +19,10 @@ type EmailService struct {
 	smtpUser string
 	smtpPass string
 	
+	// Brevo config
+	brevoKey string
+	useBrevo bool
+	
 	// SendGrid config
 	sendgridKey string
 	useSendGrid bool
@@ -29,7 +33,17 @@ type EmailService struct {
 }
 
 func NewEmailService() *EmailService {
-	// Check if Resend is configured (preferred)
+	// Check if Brevo is configured (preferred)
+	brevoKey := os.Getenv("BREVO_API_KEY")
+	if brevoKey != "" {
+		log.Printf("[EMAIL] Using Brevo service")
+		return &EmailService{
+			brevoKey: brevoKey,
+			useBrevo: true,
+		}
+	}
+	
+	// Check if Resend is configured
 	resendKey := os.Getenv("RESEND_API_KEY")
 	if resendKey != "" {
 		log.Printf("[EMAIL] Using Resend service")
@@ -62,7 +76,7 @@ func NewEmailService() *EmailService {
 // SendInterviewEmail sends interview invitation to candidate
 func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessionID string) error {
 	// Check if email service is configured
-	if !es.useResend && !es.useSendGrid && es.smtpHost == "" {
+	if !es.useBrevo && !es.useResend && !es.useSendGrid && es.smtpHost == "" {
 		log.Printf("[EMAIL] No email service configured, skipping email to %s", candidateEmail)
 		return nil
 	}
@@ -102,6 +116,9 @@ func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessio
 
 	log.Printf("[EMAIL] Sending interview email to %s with URL: %s", candidateEmail, interviewURL)
 	
+	if es.useBrevo {
+		return es.sendEmailViaBrevo(candidateEmail, subject, body)
+	}
 	if es.useResend {
 		return es.sendEmailViaResend(candidateEmail, subject, body)
 	}
@@ -109,6 +126,58 @@ func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessio
 		return es.sendEmailViaSendGrid(candidateEmail, subject, body)
 	}
 	return es.sendEmail(candidateEmail, subject, body)
+}
+
+// sendEmailViaBrevo sends email using Brevo API
+func (es *EmailService) sendEmailViaBrevo(to, subject, htmlBody string) error {
+	const brevoURL = "https://api.brevo.com/v3/smtp/email"
+	
+	payload := map[string]interface{}{
+		"sender": map[string]string{
+			"name":  "VoxHire AI",
+			"email": "hr@voxhire.com",
+		},
+		"to": []map[string]string{
+			{
+				"email": to,
+			},
+		},
+		"subject": subject,
+		"htmlContent": htmlBody,
+	}
+	
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[EMAIL] [ERROR] Failed to marshal Brevo payload: %v", err)
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+	
+	client := &http.Client{}
+	req, err := http.NewRequest("POST", brevoURL, bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		log.Printf("[EMAIL] [ERROR] Failed to create Brevo request: %v", err)
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	req.Header.Set("api-key", es.brevoKey)
+	req.Header.Set("Content-Type", "application/json")
+	
+	log.Printf("[EMAIL] [DEBUG] Sending email via Brevo to %s with subject: %s", to, subject)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[EMAIL] [ERROR] Brevo request failed: %v", err)
+		return fmt.Errorf("brevo request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[EMAIL] [ERROR] Brevo returned status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("brevo error (status %d): %s", resp.StatusCode, string(body))
+	}
+	
+	log.Printf("[EMAIL] [SUCCESS] Email sent via Brevo to %s", to)
+	return nil
 }
 
 // sendEmailViaResend sends email using Resend API
