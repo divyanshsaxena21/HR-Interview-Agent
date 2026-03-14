@@ -12,6 +12,9 @@ func SetupAdminRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 	adminController := controllers.NewAdminController(mongoClient)
 
 	router.POST("/admin/login", adminController.Login)
+	
+	// Test email endpoint (no auth needed for testing)
+	router.POST("/admin/test-email", adminController.TestEmail)
 
 	protectedGroup := router.Group("/admin")
 	protectedGroup.Use(middleware.AuthMiddleware())

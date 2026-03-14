@@ -90,7 +90,14 @@ func (es *EmailService) SendRejectionEmail(candidateEmail, candidateName string)
 
 // sendEmail sends an email using SMTP
 func (es *EmailService) sendEmail(to, subject, body string) error {
+	if es.smtpHost == "" || es.smtpUser == "" || es.smtpPass == "" {
+		log.Printf("[EMAIL] [ERROR] SMTP credentials not configured. SMTP_HOST: %v, SMTP_USER: %v, SMTP_PASS set: %v", 
+			es.smtpHost != "", es.smtpUser != "", es.smtpPass != "")
+		return fmt.Errorf("SMTP not properly configured")
+	}
+
 	addr := fmt.Sprintf("%s:%d", es.smtpHost, es.smtpPort)
+	log.Printf("[EMAIL] Connecting to SMTP: %s", addr)
 
 	auth := smtp.PlainAuth("", es.smtpUser, es.smtpPass, es.smtpHost)
 
@@ -102,11 +109,13 @@ func (es *EmailService) sendEmail(to, subject, body string) error {
 
 	recipients := []string{to}
 
+	log.Printf("[EMAIL] [DEBUG] Attempting to send email from %s to %s with subject: %s", es.smtpUser, to, subject)
 	err := smtp.SendMail(addr, auth, es.smtpUser, recipients, []byte(fullBody))
 	if err != nil {
+		log.Printf("[EMAIL] [ERROR] SMTP SendMail failed: %v", err)
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 
-	log.Printf("Email sent to %s", to)
+	log.Printf("[EMAIL] [SUCCESS] Email sent to %s", to)
 	return nil
 }

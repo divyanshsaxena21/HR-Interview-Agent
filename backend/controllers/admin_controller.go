@@ -100,6 +100,41 @@ func (ac *AdminController) Login(c *gin.Context) {
 	})
 }
 
+// TestEmail tests the email configuration
+func (ac *AdminController) TestEmail(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request - email required"})
+		return
+	}
+
+	emailService := services.NewEmailService()
+
+	// Build test email with current configuration info
+	testSessionID := uuid.New().String()
+	err := emailService.SendInterviewEmail(req.Email, "Test User", testSessionID)
+	
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   fmt.Sprintf("Email sending failed: %v", err),
+			"smtp_configured": os.Getenv("SMTP_HOST") != "",
+			"frontend_url": os.Getenv("FRONTEND_URL"),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "Test email sent successfully",
+		"to":          req.Email,
+		"session_id":  testSessionID,
+		"frontend_url": os.Getenv("FRONTEND_URL"),
+		"smtp_host":   os.Getenv("SMTP_HOST"),
+	})
+}
+
 func (ac *AdminController) GetAllInterviews(c *gin.Context) {
 	collection := ac.db.Database("ai_recruiter").Collection("interviews")
 	evaluationCollection := ac.db.Database("ai_recruiter").Collection("evaluations")
