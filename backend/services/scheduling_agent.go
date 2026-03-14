@@ -77,7 +77,13 @@ func (sa *SchedulingAgent) Execute(ctx context.Context, state *AgentState) (*Age
 	emailService := NewEmailService()
 	candidateEmail := candidate["email"].(string)
 	candidateName := candidate["name"].(string)
-	go emailService.SendInterviewEmail(candidateEmail, candidateName, sessionID)
+	go func() {
+		if err := emailService.SendInterviewEmail(candidateEmail, candidateName, sessionID); err != nil {
+			log.Printf("[ERROR] Failed to send interview email to %s: %v", candidateEmail, err)
+		} else {
+			log.Printf("[SUCCESS] Interview email sent to %s", candidateEmail)
+		}
+	}()
 
 	// Update state
 	state.SessionID = sessionID

@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -44,8 +45,15 @@ func main() {
 			var existing models.Admin
 			err := coll.FindOne(ctx, map[string]interface{}{"admin_id": adminID}).Decode(&existing)
 			if err != nil {
+				// Hash the password before storing
+				hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPass), bcrypt.DefaultCost)
+				if err != nil {
+					log.Printf("Failed to hash password for dev admin: %v", err)
+					return
+				}
+				
 				// not found -> create
-				_, err := coll.InsertOne(ctx, models.Admin{AdminID: adminID, Password: adminPass, Name: adminName, Email: adminEmail})
+				_, err = coll.InsertOne(ctx, models.Admin{AdminID: adminID, Password: string(hashedPassword), Name: adminName, Email: adminEmail})
 				if err != nil {
 					log.Printf("Failed to create dev admin: %v", err)
 				} else {

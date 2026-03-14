@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AdminController struct {
@@ -68,7 +69,9 @@ func (ac *AdminController) Login(c *gin.Context) {
 		return
 	}
 
-	if admin.Password != req.Password {
+	// Compare hashed password
+	err = bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(req.Password))
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}

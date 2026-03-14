@@ -28,12 +28,18 @@ func NewEmailService() *EmailService {
 // SendInterviewEmail sends interview invitation to candidate
 func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessionID string) error {
 	if es.smtpHost == "" {
-		log.Println("SMTP not configured, skipping email send")
+		log.Printf("[EMAIL] SMTP not configured (SMTP_HOST env var not set), skipping email to %s", candidateEmail)
 		return nil
 	}
 
+	// Use frontend URL from environment, default to localhost for dev
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+
 	subject := "Your Interview Has Been Scheduled - VoxHire AI"
-	interviewURL := fmt.Sprintf("http://localhost:3000/interview/%s", sessionID)
+	interviewURL := fmt.Sprintf("%s/interview/%s", frontendURL, sessionID)
 
 	body := fmt.Sprintf(`
 <html>
@@ -54,6 +60,7 @@ func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessio
 </html>
 `, candidateName, interviewURL, interviewURL, interviewURL)
 
+	log.Printf("[EMAIL] Sending interview email to %s with URL: %s", candidateEmail, interviewURL)
 	return es.sendEmail(candidateEmail, subject, body)
 }
 
