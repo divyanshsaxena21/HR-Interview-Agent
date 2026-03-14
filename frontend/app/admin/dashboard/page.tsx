@@ -127,6 +127,23 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function handleDeleteInterview(id: string, candidateName: string) {
+    if (!confirm(`Delete interview for ${candidateName}? This cannot be undone.`)) return
+    try {
+      setLoading(true)
+      const token = localStorage.getItem('token')
+      if (!token) return router.push('/admin/login')
+      await axios.delete(`/admin/interviews/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+      alert('Interview deleted successfully')
+      fetchData()
+    } catch (err) {
+      console.error(err)
+      alert('Failed to delete interview')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   function handleLogout() {
     // placeholder logout; adapt to your auth flow
     try {
@@ -146,12 +163,20 @@ export default function AdminDashboardPage() {
             <h1 className="text-4xl font-bold text-gray-800 mb-2">Interview Dashboard</h1>
             <p className="text-gray-600">View and manage all candidate interviews</p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
-          >
-            Logout
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => router.push('/admin/candidates')}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+            >
+              Manage Candidates
+            </button>
+            <button
+              onClick={handleLogout}
+              className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         <div className="bg-white rounded-lg shadow p-4 mb-6">
@@ -428,6 +453,17 @@ export default function AdminDashboardPage() {
                                           )}
                                         </div>
                                       )}
+
+                                      {/* Actions */}
+                                      <div className="md:col-span-2 bg-red-50 border border-red-200 rounded-lg p-4">
+                                        <h4 className="font-bold text-red-800 mb-3">⚙️ Actions</h4>
+                                        <button
+                                          onClick={() => handleDeleteInterview(interview.id, interview.candidate_name)}
+                                          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-medium"
+                                        >
+                                          🗑️ Delete Interview
+                                        </button>
+                                      </div>
                                     </div>
                                   </td>
                                 </tr>

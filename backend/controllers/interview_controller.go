@@ -89,18 +89,24 @@ func (ic *InterviewController) StartInterview(c *gin.Context) {
 
 func (ic *InterviewController) GetInterview(c *gin.Context) {
 	interviewID := c.Param("id")
-	objID, err := primitive.ObjectIDFromHex(interviewID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
-		return
-	}
 
 	collection := ic.db.Collection("interviews")
 	var interview models.Interview
-	err = collection.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&interview)
+	
+	// Try to find by session_id first (UUID from interview link)
+	err := collection.FindOne(context.Background(), bson.M{"session_id": interviewID}).Decode(&interview)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
-		return
+		// If not found by session_id, try to find by MongoDB _id (ObjectID)
+		objID, parseErr := primitive.ObjectIDFromHex(interviewID)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+			return
+		}
+		err = collection.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&interview)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+			return
+		}
 	}
 
 	response := GetInterviewResponse{
@@ -122,11 +128,6 @@ func (ic *InterviewController) GetInterview(c *gin.Context) {
 
 func (ic *InterviewController) UpdateCandidateInfo(c *gin.Context) {
 	interviewID := c.Param("id")
-	objID, err := primitive.ObjectIDFromHex(interviewID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
-		return
-	}
 
 	var req UpdateCandidateInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -151,10 +152,21 @@ func (ic *InterviewController) UpdateCandidateInfo(c *gin.Context) {
 	}
 
 	collection := ic.db.Collection("interviews")
-	_, err = collection.UpdateOne(context.Background(), bson.M{"_id": objID}, update)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	
+	// Try to find by session_id first, then by _id
+	result, err := collection.UpdateOne(context.Background(), bson.M{"session_id": interviewID}, update)
+	if err != nil || result.MatchedCount == 0 {
+		// Try by ObjectID
+		objID, parseErr := primitive.ObjectIDFromHex(interviewID)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+			return
+		}
+		_, err = collection.UpdateOne(context.Background(), bson.M{"_id": objID}, update)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Candidate info updated"})
@@ -162,21 +174,25 @@ func (ic *InterviewController) UpdateCandidateInfo(c *gin.Context) {
 
 func (ic *InterviewController) EndInterview(c *gin.Context) {
 	interviewID := c.Param("id")
-	objID, err := primitive.ObjectIDFromHex(interviewID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
-		return
-	}
 
 	collection := ic.db.Collection("interviews")
 	ctx := context.Background()
 
-	// Fetch the interview
+	// Fetch the interview - try session_id first
 	var interview models.Interview
-	err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&interview)
+	err := collection.FindOne(ctx, bson.M{"session_id": interviewID}).Decode(&interview)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Interview not found"})
-		return
+		// Try by ObjectID
+		objID, parseErr := primitive.ObjectIDFromHex(interviewID)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+			return
+		}
+		err = collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&interview)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Interview not found"})
+			return
+		}
 	}
 
 	// Evaluate the interview
@@ -195,7 +211,7 @@ func (ic *InterviewController) EndInterview(c *gin.Context) {
 			log.Printf("[INTERVIEW] ✓ Created evaluation %s for interview %s", result.InsertedID, interviewID)
 			// Update interview with evaluation ID
 			_, err = collection.UpdateOne(ctx,
-				bson.M{"_id": objID},
+				bson.M{"_id": interview.ID},
 				bson.M{
 					"$set": bson.M{
 						"status":          "completed",
@@ -214,7 +230,7 @@ func (ic *InterviewController) EndInterview(c *gin.Context) {
 
 	// Fallback: if evaluation fails, just mark as completed
 	_, err = collection.UpdateOne(ctx,
-		bson.M{"_id": objID},
+		bson.M{"_id": interview.ID},
 		bson.M{
 			"$set": bson.M{
 				"status":     "completed",
@@ -293,18 +309,24 @@ func (ic *InterviewController) GetAllInterviews(c *gin.Context) {
 // StartAIQuestion generates the initial AI question for an interview, saves it, and returns it.
 func (ic *InterviewController) StartAIQuestion(c *gin.Context) {
 	interviewID := c.Param("id")
-	objID, err := primitive.ObjectIDFromHex(interviewID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
-		return
-	}
-
+	
 	collection := ic.db.Collection("interviews")
 	var interview models.Interview
-	err = collection.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&interview)
+	
+	// Try session_id first
+	err := collection.FindOne(context.Background(), bson.M{"session_id": interviewID}).Decode(&interview)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
-		return
+		// Try by ObjectID
+		objID, parseErr := primitive.ObjectIDFromHex(interviewID)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+			return
+		}
+		err = collection.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&interview)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+			return
+		}
 	}
 
 	qs := utils.GetHRInterviewQuestions(interview.Role)
@@ -316,7 +338,7 @@ func (ic *InterviewController) StartAIQuestion(c *gin.Context) {
 	first := qs[0]
 	msg := models.Message{Role: "ai", Content: first, Timestamp: time.Now().Unix()}
 
-	_, err = collection.UpdateOne(context.Background(), bson.M{"_id": objID}, bson.M{"$push": bson.M{"messages": msg}, "$set": bson.M{"updated_at": time.Now()}})
+	_, err = collection.UpdateOne(context.Background(), bson.M{"_id": interview.ID}, bson.M{"$push": bson.M{"messages": msg}, "$set": bson.M{"updated_at": time.Now()}})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -328,13 +350,8 @@ func (ic *InterviewController) StartAIQuestion(c *gin.Context) {
 // UploadDocument uploads a document for an interview and stores it in MongoDB
 func (ic *InterviewController) UploadDocument(c *gin.Context) {
 	interviewID := c.Param("id")
-	objID, err := primitive.ObjectIDFromHex(interviewID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
-		return
-	}
 
-	// Get file from form data (FormFile returns header and error, not file, header, error)
+	// Get file from form data
 	header, err := c.FormFile("document")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No file provided"})
@@ -367,19 +384,36 @@ func (ic *InterviewController) UploadDocument(c *gin.Context) {
 		UploadedAt:  time.Now().Unix(),
 	}
 
-	// Add to interview documents array
+	// Add to interview documents array - try session_id first
 	collection := ic.db.Collection("interviews")
-	_, err = collection.UpdateOne(
+	result, err := collection.UpdateOne(
 		context.Background(),
-		bson.M{"_id": objID},
+		bson.M{"session_id": interviewID},
 		bson.M{
 			"$push": bson.M{"documents": doc},
 			"$set":  bson.M{"updated_at": time.Now()},
 		},
 	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload document"})
-		return
+	
+	// If not found by session_id, try by ObjectID
+	if err != nil || result.MatchedCount == 0 {
+		objID, parseErr := primitive.ObjectIDFromHex(interviewID)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+			return
+		}
+		_, err = collection.UpdateOne(
+			context.Background(),
+			bson.M{"_id": objID},
+			bson.M{
+				"$push": bson.M{"documents": doc},
+				"$set":  bson.M{"updated_at": time.Now()},
+			},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload document"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

@@ -9,6 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -41,6 +43,36 @@ func SetupWebSocketRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 
 		log.Printf("[WS] ✓ Client connected: interviewId=%s, candidateName=%s", interviewId, candidateName)
 
+		// Look up interview by session_id to get the ObjectID
+		var interview map[string]interface{}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err = interviewCollection.FindOne(ctx, bson.M{"session_id": interviewId}).Decode(&interview)
+		cancel()
+		
+		if err != nil {
+			log.Printf("[WS] ✗ Interview not found for session_id %s: %v", interviewId, err)
+			conn.WriteJSON(map[string]interface{}{
+				"type":    "error",
+				"content": "Interview not found",
+			})
+			conn.Close()
+			return
+		}
+
+		// Extract the ObjectID from the interview
+		objID, ok := interview["_id"].(primitive.ObjectID)
+		if !ok {
+			log.Printf("[WS] ✗ Invalid ObjectID type from interview")
+			conn.WriteJSON(map[string]interface{}{
+				"type":    "error",
+				"content": "Invalid interview data",
+			})
+			conn.Close()
+			return
+		}
+
+		log.Printf("[WS] ✓ Found interview with ObjectID: %v", objID)
+
 		// Handle messages from client
 		for {
 			var msg map[string]interface{}
@@ -67,17 +99,6 @@ func SetupWebSocketRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 				}
 
 				log.Printf("[WS] Processing message: %s", content)
-
-				// Convert interviewId and process message
-				objID, err := services.ConvertToObjectID(interviewId)
-				if err != nil {
-					log.Printf("[WS] ✗ Invalid interview ID: %v", err)
-					conn.WriteJSON(map[string]interface{}{
-						"type":    "error",
-						"content": "Invalid interview ID",
-					})
-					continue
-				}
 
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()

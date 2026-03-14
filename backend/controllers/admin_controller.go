@@ -2,7 +2,10 @@ package controllers
 
 import (
 	"ai-recruiter/backend/models"
+	"ai-recruiter/backend/services"
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -145,4 +148,177 @@ func (ac *AdminController) GetAllInterviews(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+// ImportCandidates handles CSV or Excel file uploads
+func (ac *AdminController) ImportCandidates(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File is required"})
+		return
+	}
+
+	// Read file
+	src, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read file"})
+		return
+	}
+	defer src.Close()
+
+	data, err := io.ReadAll(src)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read file content"})
+		return
+	}
+
+	// Parse file based on extension
+	importService := services.NewCandidateImportService(ac.db)
+	var candidates []models.Candidate
+
+	if file.Filename[len(file.Filename)-4:] == ".csv" {
+		candidates, err = importService.ParseCSV(data)
+	} else if file.Filename[len(file.Filename)-5:] == ".xlsx" {
+		candidates, err = importService.ParseExcel(data)
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File must be CSV or Excel"})
+		return
+	}
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to parse file: %v", err)})
+		return
+	}
+
+	// Import candidates
+	count, err := importService.ImportCandidates(candidates)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to import candidates: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("Successfully imported %d candidates", count),
+		"count":   count,
+	})
+}
+
+// GetCandidates retrieves all candidates
+func (ac *AdminController) GetCandidates(c *gin.Context) {
+	importService := services.NewCandidateImportService(ac.db)
+	candidates, err := importService.GetCandidates()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, candidates)
+}
+
+// ScreenCandidate marks a candidate as screened and triggers scheduling
+func (ac *AdminController) ScreenCandidate(c *gin.Context) {
+	candidateID := c.Param("id")
+
+	objID, err := primitive.ObjectIDFromHex(candidateID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid candidate ID"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Update candidate status
+	coll := ac.db.Database("ai_recruiter").Collection("candidates")
+	_, err = coll.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{
+		"$set": bson.M{"status": "screened"},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update candidate"})
+		return
+	}
+
+	// Trigger scheduling agent
+	llm := services.NewGroqLLMService()
+	graph := services.NewAgentGraph()
+	graph.AddAgent(services.NewSchedulingAgent(ac.db, llm))
+
+	state := &services.AgentState{
+		CandidateID: candidateID,
+		Messages:    []map[string]interface{}{},
+		Context:     make(map[string]interface{}),
+	}
+
+	_, err = graph.Execute(ctx, "SchedulingAgent", state)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to schedule interview: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "Candidate screened and interview scheduled",
+		"session_id": state.SessionID,
+	})
+}
+
+// DeleteCandidate removes a candidate
+func (ac *AdminController) DeleteCandidate(c *gin.Context) {
+	candidateID := c.Param("id")
+
+	objID, err := primitive.ObjectIDFromHex(candidateID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid candidate ID"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Delete candidate
+	coll := ac.db.Database("ai_recruiter").Collection("candidates")
+	result, err := coll.DeleteOne(ctx, bson.M{"_id": objID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete candidate"})
+		return
+	}
+
+	if result.DeletedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Candidate not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Candidate deleted successfully",
+	})
+}
+
+// DeleteInterview removes an interview
+func (ac *AdminController) DeleteInterview(c *gin.Context) {
+	interviewID := c.Param("id")
+
+	objID, err := primitive.ObjectIDFromHex(interviewID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Delete interview
+	coll := ac.db.Database("ai_recruiter").Collection("interviews")
+	result, err := coll.DeleteOne(ctx, bson.M{"_id": objID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete interview"})
+		return
+	}
+
+	if result.DeletedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Interview deleted successfully",
+	})
 }
