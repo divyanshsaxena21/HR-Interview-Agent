@@ -17,14 +17,14 @@ type ChatService struct {
 	interviewCollection   *mongo.Collection
 	hrMemoryCollection    *mongo.Collection
 	evaluationsCollection *mongo.Collection
-	langchainAgent        *LangChainAgent
+	LangchainAgent        *LangChainAgent
 }
 
 func NewChatService(interviewCollection, hrMemoryCollection *mongo.Collection) *ChatService {
 	return &ChatService{
 		interviewCollection: interviewCollection,
 		hrMemoryCollection:  hrMemoryCollection,
-		langchainAgent:      NewLangChainAgentWithMemory(hrMemoryCollection),
+		LangchainAgent:      NewLangChainAgentWithMemory(hrMemoryCollection),
 	}
 }
 
@@ -33,7 +33,7 @@ func NewChatServiceWithEvaluations(interviewCollection, hrMemoryCollection, eval
 		interviewCollection:   interviewCollection,
 		hrMemoryCollection:    hrMemoryCollection,
 		evaluationsCollection: evaluationsCollection,
-		langchainAgent:        NewLangChainAgentWithMemory(hrMemoryCollection),
+		LangchainAgent:        NewLangChainAgentWithMemory(hrMemoryCollection),
 	}
 }
 
@@ -48,6 +48,13 @@ func (cs *ChatService) ProcessMessage(ctx context.Context, interviewID primitive
 	}
 
 	log.Printf("[CHAT] Found interview with %d messages, role: %s", len(interview.Messages), interview.Role)
+
+	// Check if interview was rejected due to dealbreaker
+	if interview.Rejected {
+		conclusion := "Thank you for your time. We appreciate your interest, but unfortunately we won't be moving forward at this time. We wish you the best of luck with your career!"
+		log.Printf("[CHAT] Interview already rejected, ending with conclusion message")
+		return conclusion, nil
+	}
 
 	// Check if interview should end based on message count
 	// Now that we're asking both static (8) + memory questions (dealbreakers), allow more messages
@@ -99,7 +106,7 @@ func (cs *ChatService) ProcessMessage(ctx context.Context, interviewID primitive
 
 	// During the interview (before reaching 8 messages), ask structured questions
 	// Ask mandatory HR questions first, then role-based questions from HR Memory
-	nextQuestion, err := cs.langchainAgent.GenerateQuestionWithTracking(interview)
+	nextQuestion, err := cs.LangchainAgent.GenerateQuestionWithTracking(interview)
 	if err != nil {
 		log.Printf("[CHAT] ✗ Error getting next question: %v", err)
 		nextQuestion = ""
@@ -158,7 +165,7 @@ Your job is to FOLLOW UP on what they've already answered.`
 	}
 
 	log.Printf("[CHAT] Generating contextual follow-up via Groq for interview %s", interviewID.Hex())
-	response, err := cs.langchainAgent.GenerateResponse(systemPrompt, message, interview.Role)
+	response, err := cs.LangchainAgent.GenerateResponse(systemPrompt, message, interview.Role)
 	if err != nil {
 		log.Printf("[CHAT] ✗ Error generating response: %v", err)
 		return "", err
@@ -187,11 +194,17 @@ func buildProfileInfo(interview models.Interview) string {
 
 func getMissingInfo(interview models.Interview) []string {
 	var missing []string
-	if interview.GitHub == "" {
-		missing = append(missing, "GitHub profile URL")
+	// Check GitHub (skip if empty, declined, or contains a URL)
+	if interview.GitHub == "" || (!strings.Contains(interview.GitHub, "github.com") && interview.GitHub != "declined") {
+		if interview.GitHub != "declined" { // Don't ask if explicitly declined
+			missing = append(missing, "GitHub profile URL")
+		}
 	}
-	if interview.LinkedIn == "" {
-		missing = append(missing, "LinkedIn profile URL")
+	// Check LinkedIn (skip if empty, declined, or contains a URL)
+	if interview.LinkedIn == "" || (!strings.Contains(interview.LinkedIn, "linkedin.com") && interview.LinkedIn != "declined") {
+		if interview.LinkedIn != "declined" { // Don't ask if explicitly declined
+			missing = append(missing, "LinkedIn profile URL")
+		}
 	}
 	// Note: We'll ask for resume/documents separately if needed
 	return missing
@@ -216,6 +229,33 @@ func (cs *ChatService) SaveMessage(ctx context.Context, interviewID primitive.Ob
 
 // ExtractAndSaveProfileLinks extracts GitHub, LinkedIn, and Portfolio URLs from candidate message
 func (cs *ChatService) ExtractAndSaveProfileLinks(ctx context.Context, interviewID primitive.ObjectID, candidateMessage string) error {
+	// Check if candidate is skipping profile links
+	lowerMsg := strings.ToLower(strings.TrimSpace(candidateMessage))
+	if lowerMsg == "skip" || lowerMsg == "skipped" || lowerMsg == "no" || lowerMsg == "n/a" {
+		// Mark all missing fields as "declined" so we don't ask again
+		update := bson.M{"$set": bson.M{"updated_at": time.Now()}}
+		
+		// Fetch current interview to see which fields are missing
+		var interview models.Interview
+		err := cs.interviewCollection.FindOne(ctx, bson.M{"_id": interviewID}).Decode(&interview)
+		if err == nil {
+			if interview.GitHub == "" {
+				update["$set"].(bson.M)["github"] = "declined"
+			}
+			if interview.LinkedIn == "" {
+				update["$set"].(bson.M)["linkedin"] = "declined"
+			}
+			if interview.Portfolio == "" {
+				update["$set"].(bson.M)["portfolio"] = "declined"
+			}
+		}
+		
+		log.Printf("[CHAT] ✓ Candidate skipped profile links")
+		err = nil
+		_, err = cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, update)
+		return err
+	}
+	
 	links := extractProfileLinks(candidateMessage)
 	
 	if links.GitHub == "" && links.LinkedIn == "" && links.Portfolio == "" {

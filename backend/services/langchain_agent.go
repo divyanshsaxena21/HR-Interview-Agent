@@ -209,6 +209,39 @@ func (la *LangChainAgent) GenerateQuestionWithTracking(interview models.Intervie
 	return nextQuestion, nil
 }
 
+// IsCurrentQuestionDealbreaker checks if the question at the current counter is a dealbreaker
+func (la *LangChainAgent) IsCurrentQuestionDealbreaker(ctx context.Context, interview models.Interview) (bool, error) {
+	// Skip first 8 static questions - they're never dealbreakers
+	if interview.HRQuestionsAsked < 8 {
+		return false, nil
+	}
+
+	// Get all questions
+	staticQuestions := utils.GetHRInterviewQuestions(interview.Role)
+	currentIndex := interview.HRQuestionsAsked - len(staticQuestions)
+
+	if currentIndex < 0 {
+		return false, nil
+	}
+
+	// Get HR memory questions
+	if la.hrMemoryCollection != nil {
+		filter := bson.M{"active": true, "category": interview.Role}
+		cursor, err := la.hrMemoryCollection.Find(ctx, filter)
+		if err == nil {
+			defer cursor.Close(ctx)
+			var hrQuestions []models.HRMemory
+			if cursorErr := cursor.All(ctx, &hrQuestions); cursorErr == nil {
+				if currentIndex < len(hrQuestions) {
+					return hrQuestions[currentIndex].IsDealbreaker, nil
+				}
+			}
+		}
+	}
+
+	return false, nil
+}
+
 func (la *LangChainAgent) UpdateMemory(role string, content string) {
 	la.memory = append(la.memory, models.Message{
 		Role:      role,

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"ai-recruiter/backend/models"
 	"ai-recruiter/backend/services"
 	"context"
 	"log"
@@ -128,16 +129,31 @@ func SetupWebSocketRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 					log.Printf("[WS] Error extracting profile links: %v", err)
 				}
 
-				// Check dealbreaker
-				isRejected, reason, err := chatService.CheckDealbreaker(ctx, objID, content)
-				if err != nil {
-					log.Printf("[WS] Error checking dealbreaker: %v", err)
-				}
+				// Fetch current interview to check if current question is a dealbreaker
+				var currentInterview models.Interview
+				if err := interviewCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&currentInterview); err != nil {
+					log.Printf("[WS] Error fetching interview for dealbreaker check: %v", err)
+				} else {
+					// Check if current question is a dealbreaker question
+					isDealreakerQuestion, err := chatService.LangchainAgent.IsCurrentQuestionDealbreaker(ctx, currentInterview)
+					if err != nil {
+						log.Printf("[WS] Error checking if question is dealbreaker: %v", err)
+						isDealreakerQuestion = false
+					}
 
-				if isRejected {
-					log.Printf("[WS] Candidate rejected: %s", reason)
-					if err := chatService.MarkAsRejected(ctx, objID, reason); err != nil {
-						log.Printf("[WS] Error marking as rejected: %v", err)
+					// Only check dealbreaker if current question is marked as dealbreaker
+					if isDealreakerQuestion {
+						isRejected, reason, err := chatService.CheckDealbreaker(ctx, objID, content)
+						if err != nil {
+							log.Printf("[WS] Error checking dealbreaker: %v", err)
+						}
+
+						if isRejected {
+							log.Printf("[WS] Candidate rejected: %s", reason)
+							if err := chatService.MarkAsRejected(ctx, objID, reason); err != nil {
+								log.Printf("[WS] Error marking as rejected: %v", err)
+							}
+						}
 					}
 				}
 
@@ -164,14 +180,15 @@ func SetupWebSocketRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 
 				log.Printf("[WS] ✓ Sending response of length %d", len(response))
 
-				// Check if interview is now completed
+				// Check if interview is now completed or rejected
 				var updatedInterview map[string]interface{}
 				interviewCollection.FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedInterview)
 				status, _ := updatedInterview["status"].(string)
+				rejected, _ := updatedInterview["rejected"].(bool)
 
 				// Send response to client
 				messageType := "ai_message"
-				if status == "completed" {
+				if status == "completed" || rejected {
 					messageType = "interview_ended"
 				}
 
