@@ -62,8 +62,8 @@ func NewEmailService() *EmailService {
 // SendInterviewEmail sends interview invitation to candidate
 func (es *EmailService) SendInterviewEmail(candidateEmail, candidateName, sessionID string) error {
 	// Check if email service is configured
-	if !es.useSendGrid && es.smtpHost == "" {
-		log.Printf("[EMAIL] No email service configured (SendGrid or SMTP), skipping email to %s", candidateEmail)
+	if !es.useResend && !es.useSendGrid && es.smtpHost == "" {
+		log.Printf("[EMAIL] No email service configured, skipping email to %s", candidateEmail)
 		return nil
 	}
 
