@@ -46,14 +46,19 @@ type Interview struct {
 	Portfolio       string             `bson:"portfolio,omitempty" json:"portfolio,omitempty"`
 	Messages        []Message          `bson:"messages" json:"messages"`
 	Documents       []Document         `bson:"documents,omitempty" json:"documents,omitempty"`
-	Status          string             `bson:"status" json:"status"`
-	Rejected        bool               `bson:"rejected" json:"rejected"`
-	RejectionReason string             `bson:"rejection_reason,omitempty" json:"rejection_reason,omitempty"`
-	HRQuestionsAsked int               `bson:"hr_questions_asked,omitempty" json:"hr_questions_asked,omitempty"`
-	ResultID        primitive.ObjectID `bson:"result_id,omitempty" json:"result_id,omitempty"`
-	EvaluationID    primitive.ObjectID `bson:"evaluation_id,omitempty" json:"evaluation_id,omitempty"`
-	CreatedAt       time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt       time.Time          `bson:"updated_at" json:"updated_at"`
+	Status              string             `bson:"status" json:"status"`
+	ScreeningStage      string             `bson:"screening_stage,omitempty" json:"screening_stage,omitempty"` // "questions", "missing_info", "availability", "complete"
+	Rejected            bool               `bson:"rejected" json:"rejected"`
+	RejectionReason     string             `bson:"rejection_reason,omitempty" json:"rejection_reason,omitempty"`
+	HRQuestionsAsked    int                `bson:"hr_questions_asked,omitempty" json:"hr_questions_asked,omitempty"`
+	Availability        string             `bson:"availability,omitempty" json:"availability,omitempty"`
+	ScreeningSummaryID  primitive.ObjectID `bson:"screening_summary_id,omitempty" json:"screening_summary_id,omitempty"`
+	ResultID            primitive.ObjectID `bson:"result_id,omitempty" json:"result_id,omitempty"`
+	EvaluationID        primitive.ObjectID `bson:"evaluation_id,omitempty" json:"evaluation_id,omitempty"`
+	LastQuestionAsked   string             `bson:"last_question_asked,omitempty" json:"last_question_asked,omitempty"` // Track current mandatory question for follow-ups
+	FollowUpGenerated   bool               `bson:"follow_up_generated,omitempty" json:"follow_up_generated,omitempty"` // Whether follow-up generated for this question
+	CreatedAt           time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt           time.Time          `bson:"updated_at" json:"updated_at"`
 }
 
 // InterviewResult contains structured evaluation results
@@ -97,4 +102,23 @@ type Analytics struct {
 	ClarityRating      int                `bson:"clarity_rating" json:"clarity_rating"`
 	CandidateTalkRatio float64            `bson:"candidate_talk_ratio" json:"candidate_talk_ratio"`
 	CreatedAt          time.Time          `bson:"created_at" json:"created_at"`
+}
+
+// ScreeningSummary represents HR screening results and recommendations
+type ScreeningSummary struct {
+	ID                    primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	InterviewID           primitive.ObjectID `bson:"interview_id" json:"interview_id"`
+	CandidateID           primitive.ObjectID `bson:"candidate_id" json:"candidate_id"`
+	CandidateName         string             `bson:"candidate_name" json:"candidate_name"`
+	Role                  string             `bson:"role" json:"role"`
+	ScreeningStatus       string             `bson:"screening_status" json:"screening_status"` // "pass", "reject", "needs_review"
+	DealBreakerTriggered  bool               `bson:"dealbreaker_triggered" json:"dealbreaker_triggered"`
+	DealBreakerReason     string             `bson:"dealbreaker_reason,omitempty" json:"dealbreaker_reason,omitempty"`
+	CandidateStrengths    []string           `bson:"candidate_strengths" json:"candidate_strengths"`
+	CandidateWeaknesses   []string           `bson:"candidate_weaknesses" json:"candidate_weaknesses"`
+	MissingInformation    []string           `bson:"missing_information" json:"missing_information"`
+	CandidateAvailability string             `bson:"candidate_availability" json:"candidate_availability"`
+	Recommendation        string             `bson:"recommendation" json:"recommendation"` // "schedule_hr_meeting", "reject", "needs_more_info"
+	HRNotes               string             `bson:"hr_notes" json:"hr_notes"`
+	CreatedAt             time.Time          `bson:"created_at" json:"created_at"`
 }

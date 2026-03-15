@@ -425,3 +425,40 @@ func (ic *InterviewController) UploadDocument(c *gin.Context) {
 		"file":    header.Filename,
 	})
 }
+
+// GetScreeningSummary retrieves the screening summary for an interview
+func (ic *InterviewController) GetScreeningSummary(c *gin.Context) {
+	interviewID := c.Param("id")
+
+	objID, err := primitive.ObjectIDFromHex(interviewID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid interview ID"})
+		return
+	}
+
+	// Get the interview to find the screening summary ID
+	interviewCollection := ic.db.Collection("interviews")
+	var interview models.Interview
+	err = interviewCollection.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&interview)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Interview not found"})
+		return
+	}
+
+	// If no screening summary, return not found
+	if interview.ScreeningSummaryID == primitive.NilObjectID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Screening summary not yet generated"})
+		return
+	}
+
+	// Fetch the screening summary
+	summaryCollection := ic.db.Collection("screening_summaries")
+	var summary models.ScreeningSummary
+	err = summaryCollection.FindOne(context.Background(), bson.M{"_id": interview.ScreeningSummaryID}).Decode(&summary)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Screening summary not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, summary)
+}

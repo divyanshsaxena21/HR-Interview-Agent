@@ -2,8 +2,14 @@ package services
 
 import (
 	"ai-recruiter/backend/models"
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -47,7 +53,8 @@ func (cs *ChatService) ProcessMessage(ctx context.Context, interviewID primitive
 		return "", err
 	}
 
-	log.Printf("[CHAT] Found interview with %d messages, role: %s", len(interview.Messages), interview.Role)
+	log.Printf("[CHAT] Found interview: stage=%s, hr_questions_asked=%d, availability=%s, rejected=%v", 
+		interview.ScreeningStage, interview.HRQuestionsAsked, interview.Availability, interview.Rejected)
 
 	// Check if interview was rejected due to dealbreaker
 	if interview.Rejected {
@@ -56,123 +63,164 @@ func (cs *ChatService) ProcessMessage(ctx context.Context, interviewID primitive
 		return conclusion, nil
 	}
 
-	// Check if interview should end based on message count
-	// Now that we're asking both static (8) + memory questions (dealbreakers), allow more messages
-	messageCount := len(interview.Messages)
-	shouldEndInterview := messageCount >= 16 // ~8 questions with potential dealbreakers
+	// Initialize stage if not set
+	if interview.ScreeningStage == "" {
+		interview.ScreeningStage = "questions"
+		_, _ = cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, bson.M{
+			"$set": bson.M{"screening_stage": "questions"},
+		})
+	}
 
-	// Check for missing candidate information
-	missingInfo := getMissingInfo(interview)
-
-	// If should end and missing info, ask for it
-	if shouldEndInterview && len(missingInfo) > 0 {
-		response := "We're wrapping up the interview. Before we finish, could you please provide the following information:\n"
-		for _, info := range missingInfo {
-			response += "- " + info + "\n"
+	// STAGE 1: Ask Screening Questions
+	if interview.ScreeningStage == "questions" {
+		// Check if we need to generate a contextual follow-up for the last mandatory question
+		if interview.LastQuestionAsked != "" && !interview.FollowUpGenerated && message != "" {
+			log.Printf("[CHAT] STAGE 1: Generating contextual follow-up for: %s", interview.LastQuestionAsked)
+			followUp, err := cs.GenerateContextualFollowUp(ctx, interview, message)
+			if err == nil && followUp != "" {
+				// Mark follow-up as generated
+				_, _ = cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, bson.M{
+					"$set": bson.M{"follow_up_generated": true, "updated_at": time.Now()},
+				})
+				log.Printf("[CHAT] STAGE 1: Follow-up generated")
+				return followUp, nil
+			}
+			// If follow-up generation fails, continue with next question
 		}
-		response += "\nYou can share these directly or type 'skip' if they're not available."
 		
-		log.Printf("[CHAT] Requesting missing info. Message count: %d", messageCount)
+		// Get next mandatory question
+		nextQuestion, err := cs.LangchainAgent.GenerateQuestionWithTracking(interview)
+		if err != nil {
+			log.Printf("[CHAT] ✗ Error getting next question: %v", err)
+			nextQuestion = ""
+		}
+
+		// If more questions to ask
+		if nextQuestion != "" && nextQuestion != "END_INTERVIEW" {
+			log.Printf("[CHAT] STAGE 1: Asking question #%d - %s", interview.HRQuestionsAsked+1, nextQuestion[:min(60, len(nextQuestion))]+"...")
+			
+			_, err := cs.interviewCollection.UpdateOne(ctx,
+				bson.M{"_id": interviewID},
+				bson.M{
+					"$inc": bson.M{"hr_questions_asked": 1},
+					"$set": bson.M{
+						"updated_at": time.Now(),
+						"last_question_asked": nextQuestion,
+						"follow_up_generated": false, // Reset for new question
+					},
+				},
+			)
+			if err != nil {
+				log.Printf("[CHAT] Error incrementing question counter: %v", err)
+			}
+			
+			return nextQuestion, nil
+		}
+
+		// Questions complete, move to next stage
+		log.Printf("[CHAT] Questions complete, moving to missing_info stage")
+		_, _ = cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, bson.M{
+			"$set": bson.M{"screening_stage": "missing_info"},
+		})
+		interview.ScreeningStage = "missing_info"
+	}
+
+	// STAGE 2: Collect Missing Information
+	if interview.ScreeningStage == "missing_info" {
+		missingInfo := getMissingInfo(interview)
+		
+		if len(missingInfo) > 0 {
+			response := "We're wrapping up the interview. Before we finish, could you please provide the following information:\n"
+			for _, info := range missingInfo {
+				response += "- " + info + "\n"
+			}
+			response += "\nYou can share these directly or type 'skip' if they're not available."
+			
+			log.Printf("[CHAT] STAGE 2: Requesting missing info. Missing: %v", missingInfo)
+			return response, nil
+		}
+
+		// No missing info or user provided everything, move to availability stage
+		log.Printf("[CHAT] Missing info complete, moving to availability stage")
+		_, _ = cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, bson.M{
+			"$set": bson.M{"screening_stage": "availability"},
+		})
+		interview.ScreeningStage = "availability"
+		
+		// After transitioning to availability stage, ask for it without processing current message
+		response := "Great! Before we finish, one more thing - could you please share your availability for a meeting with our HR team? You can provide:\n" +
+			"- Specific dates and times you're available\n" +
+			"- Or your general availability (e.g., 'weekdays after 5 PM', 'flexible')\n\n" +
+			"This will help us schedule your next round as quickly as possible."
+		
+		log.Printf("[CHAT] STAGE 3: Requesting availability")
 		return response, nil
 	}
 
-	// If should end and no missing info, wrap up interview
-	if shouldEndInterview && len(missingInfo) == 0 {
-		conclusion := "Thank you for taking the time to interview with us today! We've covered a lot of ground and I appreciate your thoughtful responses. We'll review your interview and get back to you soon. Have a great day!"
-		
-		// Mark interview as completed and update candidate status to interviewed
-		_, err := cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, bson.M{
-			"$set": bson.M{"status": "completed", "updated_at": time.Now()},
-		})
-		if err != nil {
-			log.Printf("[CHAT] Error marking interview as completed: %v", err)
-		}
-		
-		// Get candidate ID from interview and update candidate status to interviewed
-		var interview map[string]interface{}
-		cs.interviewCollection.FindOne(ctx, bson.M{"_id": interviewID}).Decode(&interview)
-		if candidateID, ok := interview["candidate_id"].(string); ok {
-			candidateObjID, err := primitive.ObjectIDFromHex(candidateID)
-			if err == nil {
-				cs.interviewCollection.Database().Collection("candidates").UpdateOne(ctx, bson.M{"_id": candidateObjID}, bson.M{
-					"$set": bson.M{"status": "interviewed"},
-				})
+	// STAGE 3: Collect HR Meeting Availability
+	if interview.ScreeningStage == "availability" {
+		// Only process message if we have one (don't process transition message from Stage 2)
+		if message != "" && interview.Availability == "" {
+			// Validate that the message is actually availability info, not just a generic response
+			// Don't save "skip", "ok", "yes", etc. - wait for actual availability
+			lowerMsg := strings.ToLower(strings.TrimSpace(message))
+			if lowerMsg != "skip" && lowerMsg != "ok" && lowerMsg != "yes" && lowerMsg != "no" && 
+			   lowerMsg != "n/a" && lowerMsg != "na" && lowerMsg != "declined" && len(message) > 2 {
+				// Save as availability
+				if err := cs.SaveAvailability(ctx, interviewID, message); err != nil {
+					log.Printf("[CHAT] Error saving availability: %v", err)
+				}
+				interview.Availability = strings.TrimSpace(message)
+				log.Printf("[CHAT] STAGE 3: Availability saved: %s", interview.Availability)
 			}
 		}
 		
-		log.Printf("[CHAT] Interview completed. Final message count: %d", messageCount)
+		// If still no availability, ask for it
+		if interview.Availability == "" {
+			response := "Great! Before we finish, one more thing - could you please share your availability for a meeting with our HR team? You can provide:\n" +
+				"- Specific dates and times you're available\n" +
+				"- Or your general availability (e.g., 'weekdays after 5 PM', 'flexible')\n\n" +
+				"This will help us schedule your next round as quickly as possible."
+			
+			log.Printf("[CHAT] STAGE 3: Requesting availability (no valid response yet)")
+			return response, nil
+		}
+
+		// Availability collected, move to complete stage
+		log.Printf("[CHAT] Availability collected: %s", interview.Availability)
+		_, _ = cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, bson.M{
+			"$set": bson.M{"screening_stage": "complete"},
+		})
+		interview.ScreeningStage = "complete"
+	}
+
+	// STAGE 4: Interview Complete
+	if interview.ScreeningStage == "complete" {
+		conclusion := "Thank you for taking the time to interview with us today! We've covered a lot of ground and I appreciate your thoughtful responses. We'll review your interview and get back to you soon with next steps. Have a great day!"
+		
+		// Mark interview as screening_complete and trigger summary generation
+		_, err = cs.interviewCollection.UpdateOne(ctx, bson.M{"_id": interviewID}, bson.M{
+			"$set": bson.M{"status": "screening_complete", "updated_at": time.Now()},
+		})
+		if err != nil {
+			log.Printf("[CHAT] Error marking interview as screening_complete: %v", err)
+		}
+
+		// Generate screening summary asynchronously
+		go func() {
+			summaryCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			
+			cs.GenerateScreeningSummary(summaryCtx, interviewID)
+		}()
+		
+		log.Printf("[CHAT] STAGE 4: Interview screening complete")
 		return conclusion, nil
 	}
 
-	// During the interview (before reaching 8 messages), ask structured questions
-	// Ask mandatory HR questions first, then role-based questions from HR Memory
-	nextQuestion, err := cs.LangchainAgent.GenerateQuestionWithTracking(interview)
-	if err != nil {
-		log.Printf("[CHAT] ✗ Error getting next question: %v", err)
-		nextQuestion = ""
-	}
-
-	if nextQuestion != "" && nextQuestion != "END_INTERVIEW" {
-		log.Printf("[CHAT] ✓ Returning mandatory question at message count %d", messageCount)
-		
-		// Increment the question counter so next call gets the next question
-		_, err := cs.interviewCollection.UpdateOne(ctx,
-			bson.M{"_id": interviewID},
-			bson.M{
-				"$inc": bson.M{"hr_questions_asked": 1},
-				"$set": bson.M{"updated_at": time.Now()},
-			},
-		)
-		if err != nil {
-			log.Printf("[CHAT] Error incrementing question counter: %v", err)
-		}
-		
-		return nextQuestion, nil
-	}
-
-	// Build system prompt for contextual follow-ups (only used if all mandatory questions done)
-	systemPrompt := `You are an experienced HR recruiter conducting a screening interview.
-Your role is to assess:
-- Soft skills (communication, collaboration, problem-solving mindset)
-- Cultural fit and motivation
-- Work style and team dynamics
-- Career growth mindset
-- Professionalism and clarity of thought
-
-Guidelines:
-1. Listen carefully to what they say and ask meaningful follow-up questions
-2. Build rapport and be conversational
-3. Focus on WHY they did things, not technical HOW (this is HR screening, not technical interview)
-4. Ask about their approach to problems, collaboration style, and interpersonal skills
-5. Keep responses concise (2-3 sentences max)
-6. Ask ONE follow-up related to what they just shared
-7. Show interest in their career growth and aspirations
-
-Example follow-ups based on what they say:
-- If they mention a project: "What was the most challenging part of that project, and how did you handle disagreements?"
-- If they mention teamwork: "How do you typically handle conflict with team members?"
-- If they mention a challenge: "How did your team or manager support you through that?"
-- If they mention internship: "What was the most valuable lesson you learned about working in a professional environment?"
-
-Candidate info:` + buildProfileInfo(interview) + `
-
-IMPORTANT: Do NOT ask the mandatory interview questions yourself - those will be asked separately.
-Your job is to FOLLOW UP on what they've already answered.`
-
-	// If missing GitHub or LinkedIn, add instruction to ask naturally
-	if interview.GitHub == "" || interview.LinkedIn == "" {
-		systemPrompt += "\n\nWhen appropriate in this follow-up response, ask for their GitHub or LinkedIn profile."
-	}
-
-	log.Printf("[CHAT] Generating contextual follow-up via Groq for interview %s", interviewID.Hex())
-	response, err := cs.LangchainAgent.GenerateResponse(systemPrompt, message, interview.Role)
-	if err != nil {
-		log.Printf("[CHAT] ✗ Error generating response: %v", err)
-		return "", err
-	}
-
-	log.Printf("[CHAT] ✓ Final response length: %d for interview %s", len(response), interviewID.Hex())
-	return response, nil
+	// Fallback (shouldn't reach here)
+	log.Printf("[CHAT] ✗ Unexpected state: stage=%s", interview.ScreeningStage)
+	return "I apologize, there was an issue processing your response. Please try again.", nil
 }
 
 func buildProfileInfo(interview models.Interview) string {
@@ -208,6 +256,11 @@ func getMissingInfo(interview models.Interview) []string {
 	}
 	// Note: We'll ask for resume/documents separately if needed
 	return missing
+}
+
+// GetMissingInfoPublic is exported version of getMissingInfo for external use
+func GetMissingInfoPublic(interview models.Interview) []string {
+	return getMissingInfo(interview)
 }
 
 func (cs *ChatService) SaveMessage(ctx context.Context, interviewID primitive.ObjectID, role, content string) error {
@@ -427,4 +480,164 @@ func matchesDealbreaker(message, question string) bool {
 		return true
 	}
 	return false
+}
+
+// SaveAvailability stores candidate's availability for HR meeting
+func (cs *ChatService) SaveAvailability(ctx context.Context, interviewID primitive.ObjectID, availability string) error {
+	_, err := cs.interviewCollection.UpdateOne(ctx,
+		bson.M{"_id": interviewID},
+		bson.M{
+			"$set": bson.M{
+				"availability": strings.TrimSpace(availability),
+				"updated_at":   time.Now(),
+			},
+		},
+	)
+	if err != nil {
+		log.Printf("[CHAT] Error saving availability: %v", err)
+	} else {
+		log.Printf("[CHAT] ✓ Saved candidate availability for interview %s", interviewID.Hex())
+	}
+	return err
+}
+
+// GenerateScreeningSummary creates HR summary for completed screening
+func (cs *ChatService) GenerateScreeningSummary(ctx context.Context, interviewID primitive.ObjectID) error {
+	log.Printf("[CHAT] Starting screening summary generation for interview %s", interviewID.Hex())
+
+	// Fetch the interview
+	var interview models.Interview
+	err := cs.interviewCollection.FindOne(ctx, bson.M{"_id": interviewID}).Decode(&interview)
+	if err != nil {
+		log.Printf("[CHAT] ✗ Error fetching interview for summary: %v", err)
+		return err
+	}
+
+	// Create screening summary agent
+	summaryCollection := cs.interviewCollection.Database().Collection("screening_summaries")
+	summaryAgent := NewScreeningSummaryAgent(summaryCollection, cs.interviewCollection)
+
+	// Generate summary
+	summary, err := summaryAgent.GenerateScreeningSummary(ctx, interview)
+	if err != nil {
+		log.Printf("[CHAT] ✗ Error generating summary: %v", err)
+		return err
+	}
+
+	// Save summary
+	err = summaryAgent.SaveScreeningSummary(ctx, summary)
+	if err != nil {
+		log.Printf("[CHAT] ✗ Error saving summary: %v", err)
+		return err
+	}
+
+	log.Printf("[CHAT] ✓ Screening summary generated successfully for interview %s", interviewID.Hex())
+	return nil
+}
+
+// GenerateContextualFollowUp generates a personalized follow-up question based on candidate's response
+func (cs *ChatService) GenerateContextualFollowUp(ctx context.Context, interview models.Interview, candidateResponse string) (string, error) {
+	groqAPIKey := os.Getenv("GROQ_API_KEY")
+	if groqAPIKey == "" {
+		log.Printf("[CHAT] GROQ_API_KEY not set, skipping follow-up generation")
+		return "", nil
+	}
+
+	// Build the prompt for follow-up generation
+	systemPrompt := `You are an HR interviewer generating a natural follow-up question. 
+You should ask a deeper, more specific follow-up that explores the candidate's answer without repeating the original question.
+Keep the follow-up concise (1-2 sentences) and conversational.
+Do NOT include any preamble or explanation - just the follow-up question itself.`
+
+	userPrompt := fmt.Sprintf(`Original question: %s
+
+Candidate's response: %s
+
+Role: %s
+
+Generate a natural, specific follow-up question based on their response that explores it deeper.`, 
+		interview.LastQuestionAsked, candidateResponse, interview.Role)
+
+	groqRequest := struct {
+		Model     string `json:"model"`
+		Messages  []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+		MaxTokens int `json:"max_tokens"`
+	}{
+		Model: "llama-3.3-70b-versatile",
+		Messages: []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		MaxTokens: 200,
+	}
+
+	payload, err := json.Marshal(groqRequest)
+	if err != nil {
+		log.Printf("[CHAT] Error marshaling follow-up request: %v", err)
+		return "", err
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	req, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(payload))
+	if err != nil {
+		log.Printf("[CHAT] Error creating follow-up request: %v", err)
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+groqAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[CHAT] Error calling Groq API for follow-up: %v", err)
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[CHAT] Error reading follow-up response: %v", err)
+		return "", err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("[CHAT] Groq API error for follow-up: %s", string(respBody))
+		return "", fmt.Errorf("groq api error: %s", string(respBody))
+	}
+
+	var groqResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+
+	if err := json.Unmarshal(respBody, &groqResp); err != nil {
+		log.Printf("[CHAT] Error parsing follow-up response: %v", err)
+		return "", err
+	}
+
+	if len(groqResp.Choices) == 0 {
+		log.Printf("[CHAT] No response from Groq for follow-up")
+		return "", fmt.Errorf("no response from groq")
+	}
+
+	followUp := strings.TrimSpace(groqResp.Choices[0].Message.Content)
+	log.Printf("[CHAT] Generated follow-up: %s", followUp[:min(80, len(followUp))])
+	return followUp, nil
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

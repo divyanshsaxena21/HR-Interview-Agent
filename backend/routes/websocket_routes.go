@@ -188,7 +188,7 @@ func SetupWebSocketRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 
 				// Send response to client
 				messageType := "ai_message"
-				if status == "completed" || rejected {
+				if status == "completed" || status == "screening_complete" || rejected {
 					messageType = "interview_ended"
 				}
 

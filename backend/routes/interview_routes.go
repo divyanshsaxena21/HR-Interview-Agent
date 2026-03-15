@@ -14,6 +14,7 @@ func SetupInterviewRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 	{
 		group.POST("/start", controller.StartInterview)
 		group.POST("/:id/ai-start", controller.StartAIQuestion)
+		group.GET("/:id/screening-summary", controller.GetScreeningSummary)
 		group.GET("/:id", controller.GetInterview)
 		group.PUT("/:id/info", controller.UpdateCandidateInfo)
 		group.POST("/:id/end", controller.EndInterview)

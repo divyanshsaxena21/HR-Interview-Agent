@@ -31,8 +31,21 @@ interface Interview {
   status?: string
   rejected?: boolean
   rejection_reason?: string
+  availability?: string
   created_at?: string
   evaluation_id?: string
+  screening_summary_id?: string
+  screening_summary?: {
+    screening_status?: string
+    dealbreaker_triggered?: boolean
+    dealbreaker_reason?: string
+    candidate_strengths?: string[]
+    candidate_weaknesses?: string[]
+    missing_information?: string[]
+    candidate_availability?: string
+    recommendation?: string
+    hr_notes?: string
+  }
   evaluation?: {
     id?: string
     communication_score?: number
@@ -84,7 +97,23 @@ export default function AdminDashboardPage() {
         const token = localStorage.getItem('token')
         if (!token) return router.push('/admin/login')
         const res = await axios.get('/admin/interviews', { headers: { Authorization: `Bearer ${token}` } })
-        setInterviews(res.data || [])
+        const interviewsData = res.data || []
+        
+        // Fetch screening summaries for each interview
+        const interviewsWithSummaries = await Promise.all(
+          interviewsData.map(async (interview: Interview) => {
+            try {
+              if (interview.id) {
+                const summaryRes = await axios.get(`/interview/${interview.id}/screening-summary`, { headers: { Authorization: `Bearer ${token}` } })
+                return { ...interview, screening_summary: summaryRes.data }
+              }
+            } catch (err) {
+              // Screening summary not available yet, that's ok
+            }
+            return interview
+          })
+        )
+        setInterviews(interviewsWithSummaries)
       } else {
         const token = localStorage.getItem('token')
         if (!token) return router.push('/admin/login')
@@ -401,6 +430,99 @@ export default function AdminDashboardPage() {
                                         <div className="md:col-span-2 bg-red-50 border border-red-200 rounded-lg p-4">
                                           <h4 className="font-bold text-red-800 mb-2">❌ Rejection Reason</h4>
                                           <p className="text-red-700 text-sm">{interview.rejection_reason || 'Dealbreaker question failed'}</p>
+                                        </div>
+                                      )}
+
+                                      {/* Screening Summary */}
+                                      {interview.screening_summary && (
+                                        <div className="md:col-span-2 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                          <h4 className="font-bold text-blue-800 mb-4">📊 Screening Summary</h4>
+                                          
+                                          <div className="space-y-4">
+                                            {/* Status Badge */}
+                                            <div className="flex items-center gap-3">
+                                              <span className="text-sm font-semibold text-gray-700">Screening Status:</span>
+                                              <span className={`px-3 py-1 rounded text-sm font-medium ${
+                                                interview.screening_summary.screening_status === 'pass' ? 'bg-green-100 text-green-800' :
+                                                interview.screening_summary.screening_status === 'reject' ? 'bg-red-100 text-red-800' :
+                                                'bg-yellow-100 text-yellow-800'
+                                              }`}>
+                                                {interview.screening_summary.screening_status?.toUpperCase() || 'Pending'}
+                                              </span>
+                                            </div>
+
+                                            {/* Dealbreaker Status */}
+                                            {interview.screening_summary.dealbreaker_triggered && (
+                                              <div className="bg-red-100 border-l-4 border-red-500 p-3">
+                                                <p className="text-sm font-semibold text-red-800">⚠️ Dealbreaker Triggered</p>
+                                                <p className="text-sm text-red-700 mt-1">{interview.screening_summary.dealbreaker_reason || 'Candidate did not meet dealbreaker criteria'}</p>
+                                              </div>
+                                            )}
+
+                                            {/* Strengths */}
+                                            {interview.screening_summary.candidate_strengths && interview.screening_summary.candidate_strengths.length > 0 && (
+                                              <div>
+                                                <p className="text-sm font-semibold text-gray-700 mb-2">✅ Strengths:</p>
+                                                <ul className="list-disc list-inside space-y-1">
+                                                  {interview.screening_summary.candidate_strengths.map((strength, idx) => (
+                                                    <li key={idx} className="text-sm text-gray-700">{strength}</li>
+                                                  ))}
+                                                </ul>
+                                              </div>
+                                            )}
+
+                                            {/* Weaknesses */}
+                                            {interview.screening_summary.candidate_weaknesses && interview.screening_summary.candidate_weaknesses.length > 0 && (
+                                              <div>
+                                                <p className="text-sm font-semibold text-gray-700 mb-2">📌 Areas for Improvement:</p>
+                                                <ul className="list-disc list-inside space-y-1">
+                                                  {interview.screening_summary.candidate_weaknesses.map((weakness, idx) => (
+                                                    <li key={idx} className="text-sm text-gray-700">{weakness}</li>
+                                                  ))}
+                                                </ul>
+                                              </div>
+                                            )}
+
+                                            {/* Missing Information */}
+                                            {interview.screening_summary.missing_information && interview.screening_summary.missing_information.length > 0 && (
+                                              <div>
+                                                <p className="text-sm font-semibold text-gray-700 mb-2">📋 Missing Information:</p>
+                                                <ul className="list-disc list-inside space-y-1">
+                                                  {interview.screening_summary.missing_information.map((item, idx) => (
+                                                    <li key={idx} className="text-sm text-gray-700">{item}</li>
+                                                  ))}
+                                                </ul>
+                                              </div>
+                                            )}
+
+                                            {/* Availability */}
+                                            {interview.screening_summary.candidate_availability && (
+                                              <div>
+                                                <p className="text-sm font-semibold text-gray-700">📅 Availability:</p>
+                                                <p className="text-sm text-gray-700 mt-1">{interview.screening_summary.candidate_availability}</p>
+                                              </div>
+                                            )}
+
+                                            {/* Recommendation */}
+                                            {interview.screening_summary.recommendation && (
+                                              <div className="bg-blue-100 border-l-4 border-blue-500 p-3">
+                                                <p className="text-sm font-semibold text-blue-900">💡 Recommendation:</p>
+                                                <p className="text-sm text-blue-800 mt-1">
+                                                  {interview.screening_summary.recommendation === 'schedule_hr_meeting' ? 'Schedule HR meeting with candidate' :
+                                                   interview.screening_summary.recommendation === 'reject' ? 'Reject candidate' :
+                                                   'Requires manual review'}
+                                                </p>
+                                              </div>
+                                            )}
+
+                                            {/* HR Notes */}
+                                            {interview.screening_summary.hr_notes && (
+                                              <div>
+                                                <p className="text-sm font-semibold text-gray-700">📝 HR Notes:</p>
+                                                <p className="text-sm text-gray-700 mt-1 italic">{interview.screening_summary.hr_notes}</p>
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
                                       )}
 
