@@ -78,6 +78,8 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showNewQuestionForm, setShowNewQuestionForm] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [newQuestion, setNewQuestion] = useState<HRQuestion>({
     category: '',
     question: '',
@@ -129,16 +131,44 @@ export default function AdminDashboardPage() {
 
   async function handleAddQuestion() {
     try {
+      setError(null)
+      setSuccess(null)
+      
+      // Validate required fields
+      if (!newQuestion.category.trim()) {
+        setError('Category is required')
+        return
+      }
+      if (!newQuestion.question.trim()) {
+        setError('Question is required')
+        return
+      }
+
       setLoading(true)
       const token = localStorage.getItem('token')
       if (!token) return router.push('/admin/login')
-      const payload = { ...newQuestion, tags: Array.isArray(newQuestion.tags) ? newQuestion.tags : String(newQuestion.tags).split(',').map(t=>t.trim()).filter(Boolean) }
-      await axios.post('/admin/questions', payload, { headers: { Authorization: `Bearer ${token}` } })
+      
+      const payload = { 
+        ...newQuestion, 
+        tags: Array.isArray(newQuestion.tags) ? newQuestion.tags : String(newQuestion.tags).split(',').map(t=>t.trim()).filter(Boolean) 
+      }
+      
+      console.log('Adding question:', payload)
+      const response = await axios.post('/admin/questions', payload, { headers: { Authorization: `Bearer ${token}` } })
+      console.log('Response:', response)
+      
+      setSuccess('Question added successfully!')
       setNewQuestion({ category: '', question: '', tags: [], is_dealbreaker: false, active: true })
       setShowNewQuestionForm(false)
-      fetchData()
-    } catch (err) {
-      console.error(err)
+      
+      setTimeout(() => {
+        setSuccess(null)
+        fetchData()
+      }, 1500)
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to add question'
+      console.error('Error adding question:', err)
+      setError(errorMsg)
     } finally {
       setLoading(false)
     }
@@ -584,26 +614,78 @@ export default function AdminDashboardPage() {
                   </button>
                 </div>
 
+                {error && (
+                  <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+                    {error}
+                  </div>
+                )}
+                
+                {success && (
+                  <div className="mb-4 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg">
+                    {success}
+                  </div>
+                )}
+
                 {showNewQuestionForm && (
                   <div className="bg-white p-6 rounded-lg shadow mb-6">
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                        <input type="text" value={newQuestion.category} onChange={e=>setNewQuestion({...newQuestion, category: e.target.value})} placeholder="e.g., general, technical" className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Category *</label>
+                        <input 
+                          type="text" 
+                          value={newQuestion.category} 
+                          onChange={e=>setNewQuestion({...newQuestion, category: e.target.value})} 
+                          placeholder="e.g., general, technical, role-specific" 
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                        />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Question</label>
-                        <textarea value={newQuestion.question} onChange={e=>setNewQuestion({...newQuestion, question: e.target.value})} rows={3} className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Question *</label>
+                        <textarea 
+                          value={newQuestion.question} 
+                          onChange={e=>setNewQuestion({...newQuestion, question: e.target.value})} 
+                          rows={3} 
+                          placeholder="Enter the interview question"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                        />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Tags (comma-separated)</label>
-                        <input type="text" value={Array.isArray(newQuestion.tags) ? newQuestion.tags.join(',') : String(newQuestion.tags)} onChange={e=>setNewQuestion({...newQuestion, tags: String(e.target.value).split(',').map(t=>t.trim()).filter(Boolean)})} className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                        <input 
+                          type="text" 
+                          value={Array.isArray(newQuestion.tags) ? newQuestion.tags.join(',') : String(newQuestion.tags)} 
+                          onChange={e=>setNewQuestion({...newQuestion, tags: String(e.target.value).split(',').map(t=>t.trim()).filter(Boolean)})} 
+                          placeholder="e.g., teamwork, problem-solving, leadership"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                        />
                       </div>
                       <div className="flex items-center gap-4">
-                        <label className="flex items-center gap-2"><input type="checkbox" checked={newQuestion.is_dealbreaker} onChange={e=>setNewQuestion({...newQuestion, is_dealbreaker: e.target.checked})} className="rounded" /> <span className="text-sm font-medium text-gray-700">Dealbreaker Question</span></label>
-                        <label className="flex items-center gap-2"><input type="checkbox" checked={newQuestion.active} onChange={e=>setNewQuestion({...newQuestion, active: e.target.checked})} className="rounded" /> <span className="text-sm font-medium text-gray-700">Active</span></label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={newQuestion.is_dealbreaker} 
+                            onChange={e=>setNewQuestion({...newQuestion, is_dealbreaker: e.target.checked})} 
+                            className="rounded" 
+                          /> 
+                          <span className="text-sm font-medium text-gray-700">Dealbreaker Question</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            checked={newQuestion.active} 
+                            onChange={e=>setNewQuestion({...newQuestion, active: e.target.checked})} 
+                            className="rounded" 
+                          /> 
+                          <span className="text-sm font-medium text-gray-700">Active</span>
+                        </label>
                       </div>
-                      <button onClick={handleAddQuestion} className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Add Question</button>
+                      <button 
+                        onClick={handleAddQuestion} 
+                        disabled={loading}
+                        className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
+                      >
+                        {loading ? 'Adding...' : 'Add Question'}
+                      </button>
                     </div>
                   </div>
                 )}

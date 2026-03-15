@@ -21,8 +21,15 @@ func NewHRMemoryService(collection *mongo.Collection) *HRMemoryService {
 }
 
 func (s *HRMemoryService) CreateQuestion(ctx context.Context, req models.HRMemoryRequest) (*models.HRMemory, error) {
+	// Use provided JobID or set a default
+	jobID := req.JobID
+	if jobID == "" {
+		jobID = "general" // Default for admin-created questions
+	}
+
 	memory := models.HRMemory{
 		ID:            primitive.NewObjectID(),
+		JobID:         jobID,
 		Category:      req.Category,
 		Question:      req.Question,
 		Tags:          req.Tags,

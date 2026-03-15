@@ -19,7 +19,7 @@ type HRMemory struct {
 }
 
 type HRMemoryRequest struct {
-	JobID         string   `json:"job_id" binding:"required"`
+	JobID         string   `json:"job_id"`
 	Category      string   `json:"category" binding:"required"`
 	Question      string   `json:"question" binding:"required"`
 	Tags          []string `json:"tags"`
