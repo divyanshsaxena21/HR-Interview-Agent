@@ -84,6 +84,22 @@ export default function CandidateList({ refreshTrigger }: CandidateListProps) {
     }
   }
 
+  const callCandidate = async (candidateId: string) => {
+    try {
+      const token = localStorage.getItem('token')
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}/admin/candidates/${candidateId}/call`,
+        {},
+        {
+          headers: { 'Authorization': `Bearer ${token}` },
+        }
+      )
+      alert(response.data.message || 'Call initiated')
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to initiate call')
+    }
+  }
+
   if (loading) return <div className="text-center py-4">Loading candidates...</div>
   if (error) return <div className="text-red-600 py-4">{error}</div>
 
@@ -136,11 +152,19 @@ export default function CandidateList({ refreshTrigger }: CandidateListProps) {
                         </button>
                       )}
                       <button
-                        onClick={() => deleteCandidate(candidate._id, candidate.name)}
-                        className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 text-xs font-semibold"
+                          onClick={() => deleteCandidate(candidate._id, candidate.name)}
+                          className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 text-xs font-semibold"
                       >
-                        Delete
+                          Delete
                       </button>
+                      {candidate.phone && (
+                        <button
+                          onClick={() => callCandidate(candidate._id)}
+                          className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-xs font-semibold"
+                        >
+                          Call
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

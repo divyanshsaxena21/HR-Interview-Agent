@@ -195,6 +195,26 @@ func (ic *InterviewController) EndInterview(c *gin.Context) {
 		}
 	}
 
+	// ------------------------------------------------------------
+	// Attempt to call the candidate before evaluation.
+	// Use the CallService which retries up to 3 times.
+	// If all attempts fail, fall back to sending an email.
+	// ------------------------------------------------------------
+	callService := services.NewCallService()
+	// For now we use the interview.Email as a placeholder contact.
+	callSuccess, callErr := callService.CallCandidate(interview.Email)
+	if callErr != nil {
+		log.Printf("[CALL] Error attempting call for interview %s: %v", interviewID, callErr)
+	}
+	if !callSuccess {
+		// Fallback to email notification
+		emailService := services.NewEmailService()
+		// Reuse existing SendInterviewEmail method for fallback.
+		if err := emailService.SendInterviewEmail(interview.Email, interview.CandidateName, interview.SessionID); err != nil {
+			log.Printf("[EMAIL] Fallback email send failed for interview %s: %v", interviewID, err)
+		}
+	}
+
 	// Evaluate the interview
 	evaluationService := services.NewEvaluationService()
 	evaluation, err := evaluationService.EvaluateInterview(interview)

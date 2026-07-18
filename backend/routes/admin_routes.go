@@ -23,6 +23,7 @@ func SetupAdminRoutes(router *gin.Engine, mongoClient *mongo.Client) {
 		protectedGroup.POST("/candidates/import", adminController.ImportCandidates)
 		protectedGroup.GET("/candidates", adminController.GetCandidates)
 		protectedGroup.POST("/candidates/:id/screen", adminController.ScreenCandidate)
+		protectedGroup.POST("/candidates/:id/call", adminController.CallCandidate)
 		protectedGroup.DELETE("/candidates/:id", adminController.DeleteCandidate)
 		protectedGroup.DELETE("/interviews/:id", adminController.DeleteInterview)
 	}

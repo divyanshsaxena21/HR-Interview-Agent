@@ -301,6 +301,49 @@ func (ac *AdminController) ScreenCandidate(c *gin.Context) {
 	})
 }
 
+// CallCandidate triggers a Plivo call to the candidate's phone number.
+func (ac *AdminController) CallCandidate(c *gin.Context) {
+	candidateID := c.Param("id")
+
+	objID, err := primitive.ObjectIDFromHex(candidateID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid candidate ID"})
+		return
+	}
+
+	// Retrieve candidate details
+	coll := ac.db.Database("ai_recruiter").Collection("candidates")
+	var candidate models.Candidate
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&candidate); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve candidate"})
+		return
+	}
+
+	// Ensure phone number exists
+	if candidate.Phone == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Candidate does not have a phone number"})
+		return
+	}
+
+	// Attempt to call via CallService
+	callService := services.NewCallService()
+	success, err := callService.CallCandidate(candidate.Phone)
+	if err != nil || !success {
+		// Fallback to email if call fails
+		emailService := services.NewEmailService()
+		// Use candidate email and name for fallback
+		if candidate.Email != "" {
+			_ = emailService.SendInterviewEmail(candidate.Email, candidate.Name, "") // sessionID not applicable here
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Call failed, fallback email sent if possible", "success": false})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Call initiated successfully", "success": true})
+}
+
 // DeleteCandidate removes a candidate
 func (ac *AdminController) DeleteCandidate(c *gin.Context) {
 	candidateID := c.Param("id")

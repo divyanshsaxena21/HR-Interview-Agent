@@ -25,7 +25,6 @@ Recruiters can create and manage a question bank that the AI agent uses during i
 Automatic rejection for conditions like relocation refusal or other HR-defined dealbreakers.
 
 📄 **Candidate Document Collection**
-
 Candidates can upload:
 
 - Resume
@@ -45,7 +44,6 @@ The AI agent collects candidate details such as:
 If not provided initially, the agent asks for them during the interview.
 
 📊 **Recruiter Dashboard**
-
 HR teams can view:
 
 - Interview transcripts
@@ -58,7 +56,6 @@ HR teams can view:
 
 HR administrators can:
 
-- Add interview questions
 - Edit existing questions
 - Mark questions as dealbreakers
 - Control which questions the AI asks
@@ -69,7 +66,6 @@ HR administrators can:
 
 ```
 
-Candidate Browser (Next.js)
 │
 ▼
 Socket.IO Chat System
@@ -89,13 +85,9 @@ MongoDB
 ````
 
 ---
-
-## 🚀 Quick Start
-
 ### 1️⃣ Start Backend
 
 ```bash
-cd backend
 cp .env.example .env
 go run main.go
 ````
